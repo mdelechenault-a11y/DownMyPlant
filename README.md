@@ -37,6 +37,10 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
   des fenêtres). L'onglet Soleil d'une pièce montre la tache heure par heure, aujourd'hui, le 21 juin
   ou le 21 décembre, et la météo des 3 prochains jours ([Open-Meteo](https://open-meteo.com/),
   gratuit et sans clé). Calcul astronomique fait sur l'appareil.
+- **Lulu vivante** : la coccinelle change d'humeur selon le jardin (contente, inquiète quand une
+  plante a soif, triste quand une plante va mal, en fête pour un badge, endormie la nuit). Série de
+  jours sans plante assoiffée (avec record), série d'arrosages à temps par plante, et 12 badges à
+  gagner. Touchez Lulu sur l'accueil pour voir vos badges, puis touchez-la pour une astuce.
 - **Sauvegarde** : export / import du parc (photos comprises) en fichier JSON. Les pièces sont incluses.
 - Fonctionne hors connexion pour consulter le parc (service worker).
 

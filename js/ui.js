@@ -28,6 +28,8 @@ const PATHS = {
   compass: '<circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2l-1.6 4-4 1.6 1.6-4z"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   snow: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path d="M9.5 4.5L12 7l2.5-2.5M9.5 19.5L12 17l2.5 2.5"/>',
+  trophy: '<path d="M7.5 4.5h9v4.5a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6.5H4.5c0 3 1.5 4.5 3.3 4.7M16.5 6.5h3c0 3-1.5 4.5-3.3 4.7"/><path d="M12 13.5v3.5M8.5 20h7l-1-3h-5z"/>',
+  flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6 0-3.8 3.3-5.4 3.8-9.5 2.4 1.6 3.5 4 3.3 6.3 1-.6 1.8-1.7 2-3 1.8 1.6 3.9 4 3.9 6.6 0 3.2-2.6 5.6-6.5 5.6z"/>',
   star: '<path d="M12 3.8l2.4 5 5.4.7-4 3.7 1 5.4-4.8-2.6-4.8 2.6 1-5.4-4-3.7 5.4-.7z"/>',
 };
 
@@ -110,11 +112,51 @@ export function plantArt(seed = '', name = '') {
 
 // --- Lulu, la coccinelle jardinière ------------------------------------------
 
-export function lulu(size = 80) {
-  return `<svg class="lulu" width="${size}" height="${Math.round(size * 200 / 210)}" viewBox="0 0 210 200" aria-hidden="true">
+// Humeurs : happy (par défaut), party (fête), worried (soif), sad (plante malade), sleepy (la nuit).
+function luluFace(mood) {
+  const ink = '#3D3532';
+  const cheeks = '<ellipse cx="80" cy="78" rx="5" ry="3" fill="#E89AAE" opacity=".8"/><ellipse cx="120" cy="78" rx="5" ry="3" fill="#E89AAE" opacity=".8"/>';
+  const openEyes = `<circle cx="89" cy="64" r="6" fill="#fff"/><circle cx="111" cy="64" r="6" fill="#fff"/><circle cx="90" cy="65" r="3" fill="${ink}"/><circle cx="112" cy="65" r="3" fill="${ink}"/>`;
+  switch (mood) {
+    case 'party':
+      return `<path d="M83 66 q6 -8 12 0 M105 66 q6 -8 12 0" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/>${cheeks}
+        <path d="M91 77 q9 11 18 0 z" fill="#fff"/>`;
+    case 'worried':
+      return `${openEyes}<path d="M82 54 l10 -4 M118 54 l-10 -4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>${cheeks}
+        <ellipse cx="100" cy="82" rx="4" ry="3.2" fill="#fff"/>
+        <path d="M132 44 q-5 8 0 11 q5 -3 0 -11z" fill="#9CC3E6"/>`;
+    case 'sad':
+      return `<circle cx="89" cy="65" r="6" fill="#fff"/><circle cx="111" cy="65" r="6" fill="#fff"/><circle cx="89" cy="67" r="3" fill="${ink}"/><circle cx="111" cy="67" r="3" fill="${ink}"/>
+        <path d="M81 58 l10 -5 M119 58 l-10 -5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>${cheeks}
+        <path d="M93 84 q7 -6 14 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+        <path d="M84 72 q-3 6 0 8 q3 -2 0 -8z" fill="#9CC3E6"/>`;
+    case 'sleepy':
+      return `<path d="M83 65 q6 5 12 0 M105 65 q6 5 12 0" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>${cheeks}
+        <ellipse cx="100" cy="81" rx="3" ry="2.4" fill="#fff"/>`;
+    default:
+      return `${openEyes}${cheeks}<path d="M94 80 q6 5 12 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+  }
+}
+
+function luluExtras(mood) {
+  if (mood === 'party') {
+    return `<g class="lulu-confetti"><rect x="30" y="30" width="7" height="7" rx="1.5" fill="#EDC2A0" transform="rotate(20 33 33)"/>
+      <circle cx="160" cy="40" r="4.5" fill="#9C86C4"/><rect x="170" y="74" width="7" height="7" rx="1.5" fill="#8FAE95" transform="rotate(-25 173 77)"/>
+      <circle cx="40" cy="80" r="4" fill="#C4708A"/><path d="M150 20 l4 9 l9 1 l-7 6 l2 9 l-8 -5 l-8 5 l2 -9 l-7 -6 l9 -1z" fill="#F2B544"/></g>`;
+  }
+  if (mood === 'sleepy') {
+    return '<g class="lulu-zzz" fill="#9C86C4" font-family="Georgia, serif" font-style="italic" font-weight="700"><text x="138" y="40" font-size="22">z</text><text x="156" y="22" font-size="16">z</text></g>';
+  }
+  return '';
+}
+
+export function lulu(size = 80, mood = 'happy') {
+  const can = mood !== 'sleepy';
+  return `<svg class="lulu lulu-${mood}" width="${size}" height="${Math.round(size * 200 / 210)}" viewBox="0 0 210 200" aria-hidden="true">
     <ellipse cx="100" cy="186" rx="50" ry="6" fill="#000" opacity=".05"/>
     <path d="M30 170 C50 120 90 118 100 150" stroke="#8FAE95" stroke-width="3" fill="none"/>
     ${leaf(70, 128, -70, 40, 16, '#B8CFB9')}
+    <g class="lulu-body">
     <circle cx="100" cy="66" r="30" fill="#3D3532"/>
     <path d="M86 40 q-10 -20 -20 -18 M114 40 q10 -20 20 -18" stroke="#3D3532" stroke-width="3" fill="none" stroke-linecap="round"/>
     <circle cx="66" cy="22" r="5" fill="#C4708A"/><circle cx="134" cy="22" r="5" fill="#C4708A"/>
@@ -122,16 +164,15 @@ export function lulu(size = 80) {
     <path d="M100 72 V174" stroke="#3D3532" stroke-width="3"/>
     <circle cx="76" cy="106" r="9" fill="#3D3532"/><circle cx="124" cy="106" r="9" fill="#3D3532"/>
     <circle cx="72" cy="140" r="7" fill="#3D3532"/><circle cx="128" cy="140" r="7" fill="#3D3532"/>
-    <circle cx="89" cy="64" r="6" fill="#fff"/><circle cx="111" cy="64" r="6" fill="#fff"/>
-    <circle cx="90" cy="65" r="3" fill="#3D3532"/><circle cx="112" cy="65" r="3" fill="#3D3532"/>
-    <ellipse cx="80" cy="78" rx="5" ry="3" fill="#E89AAE" opacity=".8"/><ellipse cx="120" cy="78" rx="5" ry="3" fill="#E89AAE" opacity=".8"/>
-    <path d="M94 80 q6 5 12 0" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-    <g transform="translate(150 120) rotate(-15)"><path d="M0 0 h26 l-4 24 h-18z" fill="#EDC2A0"/><path d="M26 6 l18 -12" stroke="#EDC2A0" stroke-width="5" stroke-linecap="round"/><path d="M-6 6 q-8 4 -6 14" stroke="#EDC2A0" stroke-width="4" fill="none"/></g>
-    <circle cx="194" cy="102" r="2.5" fill="#9CC3E6"/><circle cx="198" cy="112" r="2" fill="#9CC3E6"/>
+    ${luluFace(mood)}
+    </g>
+    ${can ? `<g transform="translate(150 120) rotate(-15)"><path d="M0 0 h26 l-4 24 h-18z" fill="#EDC2A0"/><path d="M26 6 l18 -12" stroke="#EDC2A0" stroke-width="5" stroke-linecap="round"/><path d="M-6 6 q-8 4 -6 14" stroke="#EDC2A0" stroke-width="4" fill="none"/></g>
+    <circle cx="194" cy="102" r="2.5" fill="#9CC3E6"/><circle cx="198" cy="112" r="2" fill="#9CC3E6"/>` : ''}
+    ${luluExtras(mood)}
   </svg>`;
 }
 
 // Bulle de Lulu : mascotte + message.
-export function luluSays(title, text, size = 64) {
-  return `<div class="lulu-card">${lulu(size)}<div><div class="lulu-title">${title}</div><div class="lulu-text">${text}</div></div></div>`;
+export function luluSays(title, text, size = 64, mood = 'happy') {
+  return `<div class="lulu-card">${lulu(size, mood)}<div><div class="lulu-title">${title}</div><div class="lulu-text">${text}</div></div></div>`;
 }

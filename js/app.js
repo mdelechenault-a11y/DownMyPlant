@@ -8,6 +8,7 @@ import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js'
 import { diagnosePlant, testAnthropicKey } from './diagnose.js';
 import { APP_VERSION } from './version.js';
 import { setSunDay } from './light.js';
+import { luluState, plantStreak, nextTip } from './lulu.js';
 import { getPlace, setPlace, searchCity, locateMe } from './sun.js';
 import { seasonAdvice, seasonOf, SEASONS, fertilizeOk, seasonEnabled } from './season.js';
 import { icon, iconBadge, plantArt, lulu, luluSays, TYPE_COLORS } from './ui.js';
@@ -136,6 +137,7 @@ async function render() {
       case 'identify': setTab('identify'); return renderIdentify();
       case 'add': setTab('identify'); return renderAdd();
       case 'settings': setTab('settings'); return renderSettings();
+      case 'lulu': setTab('plants'); return renderLulu();
       case 'rooms': setTab('rooms'); return renderRooms();
       case 'room': setTab('rooms'); return renderRoom(decodeURIComponent(param || ''));
       case 'plant': setTab('plants'); return renderPlant(decodeURIComponent(param || ''));
@@ -171,16 +173,20 @@ async function renderPlants() {
     view.querySelector('#start').onclick = () => go('#/identify');
     return;
   }
-  const thirsty = plants.filter((p) => isThirsty(waterStats(p))).length;
+  const ls = luluState(plants, await listRooms().catch(() => []));
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   view.innerHTML = `
     <div class="list-head">
       <div class="muted"><strong>${plants.length} plante${plants.length > 1 ? 's' : ''}</strong> · ${esc(today)}</div>
       <button class="fab" id="add" aria-label="Ajouter une plante">${icon('plus', 22)}</button>
     </div>
-    ${thirsty
-      ? luluSays('Coucou !', `${thirsty} plante${thirsty > 1 ? 's ont' : ' a'} peut-être soif aujourd'hui. On s'en occupe ?`)
-      : luluSays('Coucou !', `Tout le monde a l'air bien hydraté. ${esc(seasonHello())}`)}
+    <button class="lulu-btn" id="lulu-home" aria-label="Voir Lulu, tes séries et tes badges">
+      ${luluSays(esc(ls.title), esc(ls.text), 64, ls.mood)}
+      <span class="lulu-chips">
+        ${ls.streak >= 1 ? `<span class="pill streak">${icon('flame', 13)}${ls.streak} jour${ls.streak > 1 ? 's' : ''}</span>` : ''}
+        <span class="pill badges-pill">${icon('trophy', 13)}${ls.badges.filter((b) => b.earned).length}/${ls.badges.length}</span>
+      </span>
+    </button>
     <div class="plant-grid">
       ${plants.map((p) => {
         const last = p.diagnoses?.[0]?.result?.etat_general;
@@ -201,17 +207,48 @@ async function renderPlants() {
     el.onclick = () => go(`#/plant/${encodeURIComponent(el.dataset.id)}`);
   });
   view.querySelector('#add').onclick = () => go('#/identify');
+  view.querySelector('#lulu-home').onclick = () => go(ls.target ? `#/plant/${encodeURIComponent(ls.target)}` : '#/lulu');
+  if (ls.fresh.length) toast(`Nouveau badge : ${ls.fresh[0].title}`);
 }
 
-// Petit mot de saison de Lulu sur l'accueil.
-function seasonHello() {
-  if (!seasonEnabled()) return 'Belle journée au jardin !';
-  return {
-    hiver: 'C\'est l\'hiver : tes plantes se reposent, j\'ai espacé leurs arrosages.',
-    printemps: 'C\'est le printemps : tout se réveille, on arrose un peu plus souvent.',
-    ete: 'C\'est l\'été : tes plantes boivent plus, je surveille !',
-    automne: 'Les jours raccourcissent : j\'espace doucement les arrosages.',
-  }[seasonOf()];
+// --- Lulu : humeur, séries et badges ------------------------------------------
+
+async function renderLulu() {
+  setHeader('Lulu', '#/plants');
+  const plants = (await listPlants()).map(upgrade);
+  const ls = luluState(plants, await listRooms().catch(() => []), { markSeen: false });
+  const earned = ls.badges.filter((b) => b.earned).length;
+  view.innerHTML = `
+    <div class="lulu-hero">
+      <button class="lulu-tap" id="lulu-tap" aria-label="Une astuce de Lulu">${lulu(150, ls.mood)}</button>
+      <div class="bubble"><div class="lulu-title">${esc(ls.title)}</div><div class="lulu-text" id="lulu-text">${esc(ls.text)}</div></div>
+      <p class="muted small">Touche-moi pour une astuce !</p>
+    </div>
+    <div class="card streak-card">
+      ${iconBadge('flame', 'var(--warn)', 24)}
+      <div>
+        <div class="streak-num">${ls.streak} jour${ls.streak > 1 ? 's' : ''}</div>
+        <div class="muted small">sans plante assoiffée · record : ${ls.best} jour${ls.best > 1 ? 's' : ''}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Badges</h2><span class="muted small">${earned} sur ${ls.badges.length}</span></div>
+      <div class="badge-grid">
+        ${ls.badges.map((b) => `
+          <div class="bdg ${b.earned ? 'on' : ''}">
+            <span class="bdg-ico" style="--c:${b.earned ? b.color : 'var(--muted)'}">${icon(b.icon, 24)}</span>
+            <strong>${esc(b.title)}</strong>
+            <span class="muted small">${esc(b.text)}</span>
+            ${b.earned ? `<span class="bdg-ok">${icon('check', 12)} Gagné</span>`
+              : `<span class="bdg-bar"><i style="width:${Math.round((b.current / b.goal) * 100)}%"></i></span><span class="muted tiny">${b.current} / ${b.goal}${b.unit ? ` ${b.unit}` : ''}</span>`}
+          </div>`).join('')}
+      </div>
+    </div>`;
+  const tap = view.querySelector('#lulu-tap');
+  tap.onclick = () => {
+    view.querySelector('#lulu-text').textContent = nextTip();
+    tap.classList.remove('wiggle'); void tap.offsetWidth; tap.classList.add('wiggle');
+  };
 }
 
 function keysNotice() {
@@ -593,6 +630,7 @@ async function renderPlant(id) {
   const late = isThirsty(ws);
   const waterRatio = ws.last ? Math.min(1, Math.max(0.04, ws.days / ws.expected)) : 0;
   const sa = seasonAdvice(p);
+  const streak = plantStreak(p);
   const ps = photoState[id] || (photoState[id] = { before: null, playing: false });
   const ref = referencePhoto(p);
   view.innerHTML = `
@@ -610,6 +648,7 @@ async function renderPlant(id) {
         <div>
           <div class="water-main">${ws.last ? `Arrosée ${esc(agoText(ws.days))}` : 'Aucun arrosage noté'}</div>
           <div class="muted small">${rhythmText(p, ws)}${late ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>
+          ${streak >= 3 ? `<div class="plant-streak">${icon('flame', 13)} ${streak} arrosages à temps d'affilée</div>` : ''}
         </div>
       </div>
       ${ws.last ? `<div class="water-bar ${late ? 'late' : ''}"><i style="width:${Math.round(waterRatio * 100)}%"></i></div>` : ''}
@@ -655,7 +694,8 @@ async function renderPlant(id) {
       <h2>Diagnostic</h2>
       ${luluSays('Un souci ?', ref
         ? `Montre-moi la plante : je la compare avec la photo du ${esc(fmtShort(ref.date))} pour te dire si elle va mieux.`
-        : 'Montre-moi la plante (ou la partie abîmée) : je regarde son état et je te donne des conseils.', 56)}
+        : 'Montre-moi la plante (ou la partie abîmée) : je regarde son état et je te donne des conseils.', 56,
+        ({ mauvais: 'sad', moyen: 'worried' })[p.diagnoses[0]?.result?.etat_general] || 'happy')}
       <p class="muted small">Le journal (arrosages, notes) est pris en compte. Coût : une fraction de centime.</p>
       ${photoPicker('diag-photo', ds.photo || null, 'Nouvelle photo pour le diagnostic')}
       <label for="diag-note">Ce que vous avez remarqué (facultatif)</label>
