@@ -1,4 +1,7 @@
-import { listPlants, getPlant, savePlant, deletePlant, clearPlants, newId, requestPersistence } from './db.js';
+import {
+  listPlants, getPlant, savePlant, deletePlant, clearPlants, newId, requestPersistence, listRooms, saveRoom, clearRooms,
+} from './db.js';
+import { initRooms, renderRooms, renderRoom, placementOf, forgetPlant } from './rooms.js';
 import { getSettings, saveSettings } from './settings.js';
 import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
@@ -126,6 +129,8 @@ async function render() {
       case 'identify': setTab('identify'); return renderIdentify();
       case 'add': setTab('identify'); return renderAdd();
       case 'settings': setTab('settings'); return renderSettings();
+      case 'rooms': setTab('rooms'); return renderRooms();
+      case 'room': setTab('rooms'); return renderRoom(decodeURIComponent(param || ''));
       case 'plant': setTab('plants'); return renderPlant(decodeURIComponent(param || ''));
       default: setTab('plants'); return renderPlants();
     }
@@ -135,6 +140,7 @@ async function render() {
   }
 }
 
+initRooms({ view, setHeader, go, toast, esc });
 window.addEventListener('hashchange', render);
 document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => go(`#/${t.dataset.route}`));
@@ -440,6 +446,7 @@ async function renderPlant(id) {
   const items = timeline(p);
   const firstDiag = items.find((i) => i.kind === 'diagnosis');
 
+  showRoomChip(p.id);
   const late = isThirsty(ws);
   const waterRatio = ws.avg && ws.days != null ? Math.min(1, Math.max(0.04, ws.days / ws.avg)) : 0;
   view.innerHTML = `
@@ -607,11 +614,26 @@ async function renderPlant(id) {
   $('#delete').onclick = async () => {
     if (!confirm(`Supprimer « ${name} » de votre parc ?`)) return;
     await deletePlant(id);
+    await forgetPlant(id);
     delete diagState[id];
     delete entryState[id];
     toast('Plante supprimée');
     go('#/plants');
   };
+}
+
+// Pièce où se trouve la plante (module Pièces), affichée sous son nom.
+async function showRoomChip(plantId) {
+  const place = await placementOf(plantId).catch(() => null);
+  const head = view.querySelector('.plant-head > div:last-child');
+  if (!place || !head || location.hash !== `#/plant/${encodeURIComponent(plantId)}`) return;
+  let chips = head.querySelector('.chips');
+  if (!chips) { chips = document.createElement('div'); chips.className = 'chips'; head.appendChild(chips); }
+  const a = document.createElement('a');
+  a.className = 'chip';
+  a.href = `#/room/${encodeURIComponent(place.room.id)}`;
+  a.innerHTML = `${icon('home', 13)}${esc(place.room.name)}`;
+  chips.appendChild(a);
 }
 
 async function runDiagnosis(plant, ds) {
@@ -620,9 +642,11 @@ async function runDiagnosis(plant, ds) {
   renderPlant(plant.id);
   try {
     const photo = ds.photo || plant.photo;
+    // La place sur le plan (pièce, fenêtre, lumière) aide le diagnostic.
+    const place = await placementOf(plant.id).catch(() => null);
     const { result } = await diagnosePlant({
       photoBlob: photo,
-      plant,
+      plant: place ? { ...plant, location: [place.text, plant.location].filter(Boolean).join(' — ') } : plant,
       history: historySummary(plant),
       userNote: ds.note.trim(),
       apiKey: getSettings().anthropicKey,
@@ -773,7 +797,8 @@ async function exportBackup() {
       }))),
     });
   }
-  const blob = new Blob([JSON.stringify({ app: 'DownMyPlant', version: 2, exportedAt: new Date().toISOString(), plants: out })], { type: 'application/json' });
+  const rooms = await listRooms();
+  const blob = new Blob([JSON.stringify({ app: 'DownMyPlant', version: 3, exportedAt: new Date().toISOString(), plants: out, rooms })], { type: 'application/json' });
   const file = new File([blob], `downmyplant-${todayIso()}.json`, { type: 'application/json' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Sauvegarde DownMyPlant' }); return; } catch { /* repli */ }
@@ -793,14 +818,23 @@ async function importBackup(input) {
     const data = JSON.parse(await file.text());
     if (!Array.isArray(data.plants)) throw new Error('Fichier non reconnu.');
     const replace = confirm('Remplacer votre parc actuel par cette sauvegarde ?\n(Annuler = ajouter les plantes à celles existantes)');
-    if (replace) await clearPlants();
+    if (replace) { await clearPlants(); await clearRooms(); }
+    const ids = new Map();
     for (const p of data.plants) {
+      ids.set(p.id, replace ? p.id : newId());
       await savePlant({
         ...p,
-        id: replace ? p.id : newId(),
+        id: ids.get(p.id),
         photo: p.photo ? base64ToBlob(p.photo) : null,
         diagnoses: (p.diagnoses || []).map((d) => ({ ...d, photo: d.photo ? base64ToBlob(d.photo) : null })),
         events: (p.events || []).map((e) => ({ ...e, photo: e.photo ? base64ToBlob(e.photo) : null })),
+      });
+    }
+    for (const r of Array.isArray(data.rooms) ? data.rooms : []) {
+      await saveRoom({
+        ...r,
+        id: replace ? r.id : newId(),
+        plants: (r.plants || []).filter((pl) => ids.has(pl.plantId)).map((pl) => ({ ...pl, plantId: ids.get(pl.plantId) })),
       });
     }
     toast(`${data.plants.length} plante(s) importée(s)`);

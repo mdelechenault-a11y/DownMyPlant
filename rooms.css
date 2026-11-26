@@ -1,0 +1,183 @@
+/* Module « Pièces » — charte Jardin aquarelle (utilise les variables de styles.css). */
+
+:root {
+  --sun: #f2b544;
+  --floor: #fdf7ef;
+  --wall: #6b5a55;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --sun: #f0c25e; --floor: #2e2725; --wall: #cdbdb5; }
+}
+
+/* Liste des pièces */
+.room-list { display: flex; flex-direction: column; gap: 12px; }
+.room-card {
+  display: flex; gap: 14px; align-items: center; text-align: left; width: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 12px; font: inherit; color: inherit; cursor: pointer;
+}
+.room-card:active { transform: scale(.99); }
+.mini-plan {
+  width: 92px; height: 92px; flex: none; border-radius: 16px; padding: 6px;
+  background: radial-gradient(circle at 30% 25%, var(--wash-3), transparent 60%), radial-gradient(circle at 75% 80%, var(--wash-1), transparent 60%), var(--tile);
+}
+.mp-room { fill: var(--floor); stroke: var(--wall); stroke-width: 0.14; stroke-linejoin: round; }
+.mp-win { stroke: var(--water); stroke-width: 0.22; stroke-linecap: round; }
+.mp-plant { fill: var(--primary); stroke: var(--surface); stroke-width: 0.06; }
+.room-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.room-name { font-family: var(--font-title); font-style: italic; font-weight: 600; font-size: 20px; line-height: 1.15; }
+.dims { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+input[type=number] {
+  width: 100%; font: inherit; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px;
+}
+.new-room { margin-top: 14px; }
+
+/* Onglets de la page pièce */
+.seg {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px;
+  background: var(--tile); border: 1px solid var(--line); border-radius: 999px; margin-bottom: 12px;
+}
+.seg-btn {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700;
+  padding: 8px 2px; border-radius: 999px; cursor: pointer;
+}
+.seg-btn.active { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+@media (max-width: 360px) { .seg-btn .ico { display: none; } }
+
+/* Plan */
+.plan-card {
+  background: radial-gradient(circle at 12% 10%, var(--wash-2), transparent 45%), radial-gradient(circle at 90% 95%, var(--wash-1), transparent 45%), var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 8px; margin-bottom: 12px;
+}
+.plan {
+  display: block; width: 100%; height: auto; max-height: min(56vh, calc(100dvh - 360px)); min-height: 220px;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.plan-hint { font-size: 12.5px; color: var(--muted); font-weight: 600; text-align: center; padding: 4px 8px 2px; min-height: 1em; }
+.plan-hint:empty { display: none; }
+
+.room-floor { fill: var(--floor); }
+.grid-line { fill: none; stroke: var(--line); stroke-width: 0.012; }
+.grid-line.strong { stroke: color-mix(in srgb, var(--muted) 40%, transparent); stroke-width: 0.02; }
+.room-grid { pointer-events: none; }
+.room-wall { fill: none; stroke: var(--wall); stroke-width: 0.12; stroke-linejoin: round; }
+.heat { fill: var(--sun); }
+.heat-sun { fill: color-mix(in srgb, var(--sun) 55%, var(--primary)); }
+
+.win-glass { stroke: var(--surface); stroke-width: 0.2; stroke-linecap: butt; }
+.win-pane { stroke: var(--water); stroke-width: 0.1; stroke-linecap: butt; }
+.win.sel .win-glass { stroke: var(--primary); stroke-width: 0.26; }
+.door-leaf { stroke: var(--water); stroke-width: 0.03; }
+.door-arc { fill: none; stroke: var(--water); stroke-width: 0.02; stroke-dasharray: 0.06 0.05; }
+.hit-line { stroke: transparent; stroke-width: 0.6; }
+.win-label { text-anchor: middle; dominant-baseline: central; fill: var(--muted); font-weight: 800; font-family: var(--font-body); }
+.win-label.sunny { fill: var(--warn); }
+.len-label { text-anchor: middle; dominant-baseline: central; fill: var(--muted); font-weight: 700; font-family: var(--font-body); }
+
+.vertex circle:not(.hit), .add-handle circle:not(.hit) { fill: var(--surface); stroke: var(--primary); stroke-width: 0.05; }
+.vertex.sel circle:not(.hit) { fill: var(--primary); }
+.add-handle circle:not(.hit) { stroke-dasharray: 0.05 0.04; }
+.add-handle text { text-anchor: middle; dominant-baseline: central; fill: var(--primary); font-weight: 800; }
+.hit { fill: transparent; }
+
+.compass-bg { fill: var(--surface); stroke: var(--line); stroke-width: 0.02; }
+.compass-needle { fill: var(--primary); }
+.compass-n { text-anchor: middle; dominant-baseline: central; fill: var(--primary); font-weight: 800; font-family: var(--font-body); }
+.sun-mark circle { fill: var(--sun); stroke: var(--surface); stroke-width: 0.04; }
+.sun-mark text { text-anchor: middle; fill: var(--warn); font-weight: 800; font-family: var(--font-body); }
+
+/* Bulles des plantes */
+.pm { cursor: grab; }
+.pm-ring { fill: var(--surface); stroke: var(--accent); stroke-width: 0.05; filter: drop-shadow(0 0.03px 0.05px rgba(80, 50, 40, .35)); }
+.pm.warn .pm-ring { stroke: var(--warn); }
+.pm.bad .pm-ring { stroke: var(--bad); }
+.pm.sel .pm-ring { stroke: var(--primary); stroke-width: 0.08; }
+.pm.dragging { opacity: .85; }
+.pm.dragging .pm-ring { stroke: var(--primary); }
+.pm-ph { fill: var(--tile); }
+.pm-label {
+  text-anchor: middle; fill: var(--text); font-weight: 800; font-family: var(--font-body);
+  paint-order: stroke; stroke: var(--floor); stroke-width: 0.06; stroke-linejoin: round; pointer-events: none;
+}
+.sug-halo { fill: color-mix(in srgb, var(--sun) 35%, transparent); stroke: var(--sun); stroke-width: 0.03; stroke-dasharray: 0.08 0.06; }
+.sug-shape { fill: var(--sun); stroke: var(--warn); stroke-width: 1.2; stroke-linejoin: round; }
+.sug-star { pointer-events: none; animation: sug-pulse 1.6s ease-in-out infinite; transform-box: fill-box; }
+@keyframes sug-pulse { 50% { opacity: .55; } }
+.sug-line { stroke: var(--warn); stroke-width: 0.035; stroke-dasharray: 0.1 0.08; }
+.drop-preview { fill: color-mix(in srgb, var(--primary) 25%, transparent); stroke: var(--primary); stroke-width: 0.04; stroke-dasharray: 0.08 0.06; pointer-events: none; }
+.drop-preview.out { fill: var(--bad-soft); stroke: var(--bad); }
+
+.axis { fill: var(--muted); text-anchor: middle; font-family: var(--font-body); font-weight: 700; }
+.draw-line { fill: none; stroke: var(--primary); stroke-width: 0.07; stroke-linejoin: round; stroke-linecap: round; }
+.draw-pt { fill: var(--surface); stroke: var(--primary); stroke-width: 0.05; }
+.draw-pt.first { fill: var(--primary); }
+
+/* Légende lumière */
+.light-toggle { margin: 0 2px 12px; flex-wrap: wrap; }
+.light-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.light-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.lg { width: 12px; height: 12px; border-radius: 4px; display: inline-block; border: 1px solid var(--line); }
+.lg-0 { background: var(--floor); }
+.lg-1 { background: color-mix(in srgb, var(--sun) 30%, var(--floor)); }
+.lg-2 { background: color-mix(in srgb, var(--sun) 75%, var(--floor)); }
+.lg-sun { background: color-mix(in srgb, var(--sun) 55%, var(--primary)); }
+.switch { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--muted); }
+.switch input { accent-color: var(--primary); width: 18px; height: 18px; }
+
+/* Réserve de plantes à glisser : bandeau juste sous le plan.
+   Glisser de côté fait défiler le bandeau, glisser vers le haut emporte la plante. */
+.tray-strip {
+  display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  margin: -4px -16px 6px; padding: 4px 16px 2px;
+}
+.tray-strip::-webkit-scrollbar { display: none; }
+.tray-help { text-align: center; margin: 0 0 12px; font-size: 12px; }
+.tray-empty { text-align: center; margin: 0 0 12px; }
+.tray-item {
+  flex: none; width: 70px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
+  touch-action: pan-x; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: grab;
+}
+.tray-item img, .tray-item .ph { width: 54px; height: 54px; }
+.tray-item img, .tray-item .ph, .pl-row img, .pl-row .ph, .sel-head img, .sel-head .ph {
+  width: 58px; height: 58px; border-radius: 50%; object-fit: cover; flex: none;
+  border: 3px solid var(--surface); box-shadow: 0 0 0 2px var(--primary-soft), var(--shadow);
+  background: var(--tile); display: grid; place-items: end center; overflow: hidden;
+}
+.tray-item .ph .plant-art, .pl-row .ph .plant-art, .sel-head .ph .plant-art { width: 86%; height: 86%; }
+.ico-ph { place-items: center !important; color: var(--water); }
+.tray-name { font-size: 12px; font-weight: 700; line-height: 1.2; max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-where { font-size: 10.5px; color: var(--muted); background: var(--tile); border-radius: 999px; padding: 1px 6px; }
+.tray-item.picked { opacity: .35; }
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; width: 70px;
+  filter: drop-shadow(0 8px 14px rgba(80, 50, 40, .3));
+}
+.drag-ghost img, .drag-ghost .ph { box-shadow: 0 0 0 3px var(--primary) !important; }
+
+.pl-list { display: flex; flex-direction: column; gap: 4px; }
+.pl-row {
+  display: flex; gap: 12px; align-items: center; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 14px; padding: 6px 4px; font: inherit; color: inherit; cursor: pointer;
+}
+.pl-row:active { background: var(--tile); }
+.pl-row img, .pl-row .ph { width: 46px; height: 46px; border-width: 2px; }
+.pl-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pl-info h2 { margin: 0; font-size: 21px; }
+
+.sel-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.sel-head img, .sel-head .ph { width: 64px; height: 64px; }
+.advice {
+  margin: 14px 0 4px; padding: 12px; border-radius: 16px;
+  background: color-mix(in srgb, var(--sun) 16%, var(--surface)); border: 1px dashed var(--warn);
+}
+.advice.ok { background: var(--accent-soft); border-color: var(--accent); }
+.advice-title { display: flex; align-items: center; gap: 6px; font-family: var(--font-title); font-style: italic; font-weight: 600; font-size: 17px; margin-bottom: 4px; color: var(--warn); }
+.advice.ok .advice-title { color: var(--accent); }
+.advice p { font-size: 14px; margin: 0; }
+.advice .btn-row { margin-top: 10px; }
+
+input[type=range] { width: 100%; accent-color: var(--primary); }
