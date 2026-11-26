@@ -1,6 +1,6 @@
 // Service worker : l'app s'ouvre même hors connexion.
 // À chaque mise en ligne : augmenter VERSION (même valeur que js/version.js).
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const CACHE = `dmp-${VERSION}`;
 const SHELL = [
   './',

@@ -17,6 +17,10 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
   fréquent en été, repos marqué pour les plantes grasses), à partir de vos propres arrosages.
   Chaque fiche affiche les conseils de saison (engrais, rempotage, chauffage…), et le diagnostic
   en tient compte. Réglable dans Réglages → Saisons (hémisphère nord ou sud).
+- **Suivi photo** : toutes les photos d'une plante (principale, journal, diagnostics) dans une
+  frise, avec un comparateur avant / après à glisser et une animation de l'évolution. Lulu propose
+  une nouvelle photo chaque mois. Le diagnostic compare la nouvelle photo avec une photo d'au moins
+  une semaine et dit si la plante **va mieux, pareil ou moins bien**.
 - **Diagnostic à la demande** : une photo + ce que vous avez remarqué → état général,
   problèmes repérés (manque d'eau, excès d'eau, lumière, parasites, jaunissement…),
   actions conseillées, arrosage et exposition. Utilise le petit modèle vision
