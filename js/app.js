@@ -4,6 +4,7 @@ import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
 import { diagnosePlant, testAnthropicKey } from './diagnose.js';
 import { APP_VERSION } from './version.js';
+import { icon, iconBadge, plantArt, lulu, luluSays, TYPE_COLORS } from './ui.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
 } from './journal.js';
@@ -23,6 +24,25 @@ function fmtDate(iso) {
   if (!iso) return '';
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+const TYPE_ICONS = { water: 'drop', fertilize: 'sprout', repot: 'pot', note: 'note', photo: 'camera' };
+
+// Photo de la plante, ou une illustration (différente pour chaque plante).
+function plantVisual(p, cls = '') {
+  return p.photo
+    ? `<img class="${cls}" src="${blobUrl(p.photo)}" alt="">`
+    : `<div class="ph art-bg ${cls}">${plantArt(p.id || p.scientificName || '', p.scientificName)}</div>`;
+}
+
+function isThirsty(ws) {
+  return !!(ws.avg && ws.days != null && ws.days > ws.avg);
+}
+
+function waterPill(ws) {
+  if (!ws.last) return `<span class="pill none">${icon('drop', 13)}pas encore noté</span>`;
+  if (isThirsty(ws)) return `<span class="pill thirsty">${icon('drop', 13)}Soif ? ${esc(agoText(ws.days))}</span>`;
+  return `<span class="pill">${icon('drop', 13)}${ws.days <= 0 ? 'Arrosée !' : esc(agoText(ws.days))}</span>`;
 }
 
 function agoText(days) {
@@ -77,7 +97,7 @@ function photoPicker(id, currentBlob, label = 'Prendre ou choisir une photo') {
     <label class="photo-picker" for="${id}">
       ${currentBlob
         ? `<img src="${blobUrl(currentBlob)}" alt="Photo sélectionnée">`
-        : `<span class="big" aria-hidden="true">📷</span><span>${esc(label)}</span>`}
+        : `<span class="big">${icon('camera', 28)}</span><span>${esc(label)}</span>`}
     </label>
     <input class="visually-hidden" type="file" id="${id}" accept="image/*">`;
 }
@@ -128,34 +148,42 @@ async function renderPlants() {
   if (!plants.length) {
     view.innerHTML = `
       <div class="empty">
-        <div class="big" aria-hidden="true">🌱</div>
-        <p>Votre parc est vide.</p>
-        <p class="small">Photographiez une plante pour la reconnaître et l'ajouter.</p>
+        ${lulu(130)}
+        <div class="title">Coucou, moi c'est Lulu !</div>
+        <p>Ton jardin est encore vide.</p>
+        <p class="small">Prends une plante en photo : je t'aide à la reconnaître et à en prendre soin.</p>
       </div>
-      <button class="btn" id="start">📷 Identifier une plante</button>
+      <button class="btn" id="start">${icon('camera', 20)} Identifier une plante</button>
       ${keysNotice()}`;
     view.querySelector('#start').onclick = () => go('#/identify');
     return;
   }
+  const thirsty = plants.filter((p) => isThirsty(waterStats(p))).length;
+  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   view.innerHTML = `
-    <p class="muted">${plants.length} plante${plants.length > 1 ? 's' : ''}</p>
+    <div class="list-head">
+      <div class="muted"><strong>${plants.length} plante${plants.length > 1 ? 's' : ''}</strong> · ${esc(today)}</div>
+      <button class="fab" id="add" aria-label="Ajouter une plante">${icon('plus', 22)}</button>
+    </div>
+    ${thirsty
+      ? luluSays('Coucou !', `${thirsty} plante${thirsty > 1 ? 's ont' : ' a'} peut-être soif aujourd'hui. On s'en occupe ?`)
+      : luluSays('Coucou !', 'Tout le monde a l\'air bien hydraté. Belle journée au jardin !')}
     <div class="plant-grid">
       ${plants.map((p) => {
         const last = p.diagnoses?.[0]?.result?.etat_general;
         const ws = waterStats(p);
         return `
         <button class="plant-tile" data-id="${esc(p.id)}">
-          ${p.photo ? `<img src="${blobUrl(p.photo)}" alt="">` : '<div class="ph">🪴</div>'}
+          ${plantVisual(p)}
           <div class="meta">
             <div class="name">${esc(p.nickname || p.commonName || p.scientificName || 'Sans nom')}</div>
             <div class="sp">${esc(p.scientificName || '')}</div>
-            <div class="water-line">💧 ${ws.last ? esc(agoText(ws.days)) : 'pas encore noté'}</div>
-            ${last ? `<div style="margin-top:4px">${etatBadge(last)}</div>` : ''}
+            ${waterPill(ws)}
+            ${last && last !== 'bon' ? `<div style="margin-top:5px">${etatBadge(last)}</div>` : ''}
           </div>
         </button>`;
       }).join('')}
-    </div>
-    <div style="margin-top:16px"><button class="btn" id="add">＋ Ajouter une plante</button></div>`;
+    </div>`;
   view.querySelectorAll('.plant-tile').forEach((el) => {
     el.onclick = () => go(`#/plant/${encodeURIComponent(el.dataset.id)}`);
   });
@@ -184,7 +212,7 @@ function renderIdentify() {
           ${ORGANS.map((o) => `<button class="chip ${o.value === s.organ ? 'active' : ''}" data-v="${o.value}">${o.label}</button>`).join('')}
         </div>
       </div>
-      <button class="btn" id="run" ${!s.photo || s.loading ? 'disabled' : ''}>🔍 Reconnaître la plante</button>
+      <button class="btn" id="run" ${!s.photo || s.loading ? 'disabled' : ''}>${icon('search', 20)} Reconnaître la plante</button>
       <div id="out">${identifyResultsHtml()}</div>
       ${keysNotice()}
     </div>`;
@@ -221,7 +249,7 @@ function renderIdentify() {
 
 function identifyResultsHtml() {
   const s = identifyState;
-  if (s.loading) return '<div class="loading"><span class="spinner"></span>Analyse en cours…</div>';
+  if (s.loading) return '<div class="loading"><span class="spinner"></span>Lulu cherche de quelle plante il s\'agit…</div>';
   if (s.error) return `<div class="error">${esc(s.error)}</div>`;
   if (!s.results) return '';
   const manualBtn = '<button class="btn secondary" id="manual" style="margin-top:8px">Ajouter sans identification</button>';
@@ -241,7 +269,7 @@ function identifyResultsHtml() {
           </div>
           <span class="score">${Math.round(r.score * 100)} %</span>
         </div>
-        <button class="btn ${i === 0 ? '' : 'secondary'}" data-pick="${i}" style="margin-top:10px">＋ Ajouter à mon parc</button>
+        <button class="btn ${i === 0 ? '' : 'secondary'}" data-pick="${i}" style="margin-top:10px">${icon('plus', 18)} Ajouter à mon parc</button>
       </div>`).join('')}
     ${manualBtn}
     ${s.remaining != null ? `<p class="muted small" style="margin-top:8px">Identifications Pl@ntNet restantes aujourd'hui : ${esc(s.remaining)}</p>` : ''}`;
@@ -310,7 +338,7 @@ function renderAdd() {
     requestPersistence();
     addDraft = null;
     Object.assign(identifyState, { photo: null, results: null, error: '' });
-    toast('Plante ajoutée à votre parc 🌿');
+    toast('Bienvenue dans le jardin 🌿');
     go(`#/plant/${encodeURIComponent(plant.id)}`);
   };
 }
@@ -333,7 +361,7 @@ function etatBadge(etat) {
     indetermine: ['warn', 'Indéterminé'],
   };
   const [cls, label] = map[etat] || map.indetermine;
-  return `<span class="badge ${cls}">${label}</span>`;
+  return `<span class="badge ${cls}">${icon('heart', 13)}${label}</span>`;
 }
 
 function diagDetailsHtml(entry) {
@@ -343,16 +371,29 @@ function diagDetailsHtml(entry) {
       ${entry.note ? `<p class="muted small">Remarque : ${esc(entry.note)}</p>` : ''}
       ${r.problemes?.length ? `
         <h3>Problèmes repérés</h3>
-        <ul class="clean">${r.problemes.map((p) => `
-          <li><strong>${esc(p.nom)}</strong> <span class="muted small">(gravité ${esc(p.gravite)})</span><br>
-          <span class="small">${esc(p.signes)}. Cause probable : ${esc(p.cause_probable)}</span></li>`).join('')}
-        </ul>` : ''}
-      ${r.conseils?.length ? `<h3>Que faire</h3><ul class="clean">${r.conseils.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
-      <dl class="kv" style="margin-top:8px">
-        ${r.arrosage ? `<dt>💧 Arrosage</dt><dd>${esc(r.arrosage)}</dd>` : ''}
-        ${r.lumiere ? `<dt>☀️ Lumière</dt><dd>${esc(r.lumiere)}</dd>` : ''}
-        ${r.a_surveiller ? `<dt>👀 À surveiller</dt><dd>${esc(r.a_surveiller)}</dd>` : ''}
+        ${r.problemes.map((p) => `
+          <div class="prob">
+            <div class="prob-head"><strong>${esc(p.nom)}</strong><span class="badge ${gravClass(p.gravite)}">gravité ${esc(p.gravite)}</span></div>
+            <div class="small muted">${esc(p.signes)}. Cause probable : ${esc(p.cause_probable)}</div>
+          </div>`).join('')}` : ''}
+      ${r.conseils?.length ? `<h3>Que faire ?</h3><ul class="todo">${r.conseils.map((c) => `<li><span class="ck">${icon('check', 13)}</span><span>${esc(c)}</span></li>`).join('')}</ul>` : ''}
+      <dl class="kv" style="margin-top:10px">
+        ${r.arrosage ? `<dt>${icon('drop', 15)} Arrosage</dt><dd>${esc(r.arrosage)}</dd>` : ''}
+        ${r.lumiere ? `<dt>${icon('sun', 15)} Lumière</dt><dd>${esc(r.lumiere)}</dd>` : ''}
+        ${r.a_surveiller ? `<dt>${icon('eye', 15)} À surveiller</dt><dd>${esc(r.a_surveiller)}</dd>` : ''}
       </dl>`;
+}
+
+function gravClass(g) {
+  const v = String(g || '').toLowerCase();
+  if (v.startsWith('élev') || v.startsWith('elev') || v.startsWith('fort')) return 'bad';
+  if (v.startsWith('moy')) return 'warn';
+  return 'good';
+}
+
+function tlDot(type) {
+  const name = type === 'diagnosis' ? 'heart' : (TYPE_ICONS[type] || 'note');
+  return `<span class="tl-dot" style="--c:${TYPE_COLORS[type] || TYPE_COLORS.note}" aria-hidden="true">${icon(name, 16)}</span>`;
 }
 
 function timelineItemHtml(item, open) {
@@ -361,7 +402,7 @@ function timelineItemHtml(item, open) {
     const r = item.result || {};
     return `
       <li class="tl-item">
-        <span class="tl-dot" aria-hidden="true">🩺</span>
+        ${tlDot('diagnosis')}
         <div class="tl-body">
           <div class="row"><strong>Diagnostic</strong><span class="muted small">${esc(fmtDate(item.date))}</span></div>
           <div style="margin:4px 0">${etatBadge(r.etat_general)}</div>
@@ -374,7 +415,7 @@ function timelineItemHtml(item, open) {
   const t = EVENT_TYPES[item.type] || EVENT_TYPES.note;
   return `
     <li class="tl-item">
-      <span class="tl-dot" aria-hidden="true">${t.icon}</span>
+      ${tlDot(item.type)}
       <div class="tl-body">
         <div class="row"><strong>${t.label}</strong><span class="muted small">${esc(fmtDate(item.date))}</span></div>
         ${item.text ? `<p class="small" style="margin-top:4px">${esc(item.text)}</p>` : ''}
@@ -392,36 +433,46 @@ async function renderPlant(id) {
   if (!p) { go('#/plants'); return; }
   const name = p.nickname || p.commonName || p.scientificName || 'Ma plante';
   setHeader(name, '#/plants');
+  titleEl.textContent = 'Ma plante';
   const ds = diagState[id] || (diagState[id] = { photo: null, note: '', loading: false, error: '' });
   const es = entryState[id] || (entryState[id] = { open: false, type: 'note', date: todayIso(), text: '', photo: null });
   const ws = waterStats(p);
   const items = timeline(p);
   const firstDiag = items.find((i) => i.kind === 'diagnosis');
 
+  const late = isThirsty(ws);
+  const waterRatio = ws.avg && ws.days != null ? Math.min(1, Math.max(0.04, ws.days / ws.avg)) : 0;
   view.innerHTML = `
-    ${p.photo ? `<img class="hero" src="${blobUrl(p.photo)}" alt="${esc(name)}">` : ''}
-    <div class="card" style="margin-top:12px">
-      <h2>${esc(name)}</h2>
-      ${p.scientificName ? `<p class="sci">${esc(p.scientificName)}${p.family ? ` <span class="muted small">· ${esc(p.family)}</span>` : ''}</p>` : ''}
-      <dl class="kv">
-        <dt>Ajoutée le</dt><dd>${esc(fmtDate(p.createdAt))}</dd>
-        ${p.location ? `<dt>Emplacement</dt><dd>${esc(p.location)}</dd>` : ''}
-      </dl>
+    <div class="plant-head">
+      <div class="thumb art-bg">${p.photo ? `<img src="${blobUrl(p.photo)}" alt="${esc(name)}">` : plantArt(p.id || p.scientificName || '', p.scientificName)}</div>
+      <div style="min-width:0">
+        <h2>${esc(name)}</h2>
+        ${p.scientificName ? `<p class="sci">${esc(p.scientificName)}${p.family ? ` · ${esc(p.family)}` : ''}</p>` : ''}
+        ${p.location ? `<div class="chips"><span class="chip static">${icon('pin', 13)}${esc(p.location)}</span></div>` : ''}
+      </div>
+    </div>
+    <div class="card">
       <div class="water-box">
-        <div class="water-main">💧 ${ws.last ? `Arrosée <strong>${esc(agoText(ws.days))}</strong>` : 'Aucun arrosage noté'}</div>
-        ${ws.avg ? `<div class="muted small">Rythme moyen : tous les ${ws.avg} jours${ws.days != null && ws.days > ws.avg ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>` : ''}
+        ${iconBadge('drop', late ? 'var(--warn)' : 'var(--water)')}
+        <div>
+          <div class="water-main">${ws.last ? `Arrosée ${esc(agoText(ws.days))}` : 'Aucun arrosage noté'}</div>
+          ${ws.avg ? `<div class="muted small">Rythme moyen : tous les ${ws.avg} jours${late ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>` : '<div class="muted small">Notez les arrosages pour connaître son rythme.</div>'}
+        </div>
       </div>
-      <div class="quick-row">
-        <button class="quick" data-quick="water"><span>💧</span>Arrosée</button>
-        <button class="quick" data-quick="fertilize"><span>🌱</span>Engrais</button>
-        <button class="quick" data-quick="repot"><span>🪴</span>Rempotée</button>
-        <button class="quick" id="open-entry"><span>📝</span>Note / photo</button>
-      </div>
+      ${ws.avg ? `<div class="water-bar ${late ? 'late' : ''}"><i style="width:${Math.round(waterRatio * 100)}%"></i></div>` : ''}
+    </div>
+    <div class="quick-row">
+      <button class="quick" data-quick="water">${iconBadge('drop', 'var(--water)')}Arrosée</button>
+      <button class="quick" data-quick="fertilize">${iconBadge('sprout', 'var(--ok)')}Engrais</button>
+      <button class="quick" data-quick="repot">${iconBadge('pot', 'var(--warn)')}Rempotée</button>
+      <button class="quick ${es.open ? 'on' : ''}" id="open-entry">${iconBadge('note', 'var(--primary)')}Note / photo</button>
+    </div>
       ${es.open ? `
-      <div class="entry-form">
+      <div class="card entry-form">
+        <h2>Ajouter au journal</h2>
         <label>Type</label>
         <div class="chips" id="entry-types">
-          ${Object.entries(EVENT_TYPES).map(([k, t]) => `<button class="chip ${k === es.type ? 'active' : ''}" data-t="${k}">${t.icon} ${t.label}</button>`).join('')}
+          ${Object.entries(EVENT_TYPES).map(([k, t]) => `<button class="chip ${k === es.type ? 'active' : ''}" data-t="${k}">${icon(TYPE_ICONS[k] || 'note', 15)}${t.label}</button>`).join('')}
         </div>
         <label for="entry-date">Date</label>
         <input type="date" id="entry-date" value="${esc(es.date)}" max="${todayIso()}">
@@ -431,32 +482,33 @@ async function renderPlant(id) {
         ${photoPicker('entry-photo', es.photo, 'Ajouter une photo')}
         <div class="btn-row">
           <button class="btn secondary" id="entry-cancel">Annuler</button>
-          <button class="btn" id="entry-save">Ajouter au journal</button>
+          <button class="btn" id="entry-save">Ajouter</button>
         </div>
       </div>` : ''}
-    </div>
 
     <div class="card">
       <h2>Diagnostic</h2>
-      <p class="muted small">Photographiez la plante (ou la partie abîmée) pour obtenir un avis sur son état et des conseils. Le journal (arrosages, notes) est pris en compte. Coût : une fraction de centime.</p>
+      ${luluSays('Un souci ?', 'Montre-moi la plante (ou la partie abîmée) : je regarde son état et je te donne des conseils.', 56)}
+      <p class="muted small">Le journal (arrosages, notes) est pris en compte. Coût : une fraction de centime.</p>
       ${photoPicker('diag-photo', ds.photo || null, 'Nouvelle photo pour le diagnostic')}
       <label for="diag-note">Ce que vous avez remarqué (facultatif)</label>
       <textarea id="diag-note" placeholder="Ex. : feuilles qui jaunissent depuis une semaine">${esc(ds.note)}</textarea>
       ${ds.error ? `<div class="error" style="margin-top:10px">${esc(ds.error)}</div>` : ''}
       ${ds.loading
-        ? '<div class="loading"><span class="spinner"></span>Diagnostic en cours…</div>'
-        : `<div class="btn-row"><button class="btn" id="diag-run" ${!(ds.photo || p.photo) ? 'disabled' : ''}>🩺 ${ds.photo ? 'Diagnostiquer' : 'Diagnostiquer avec la photo principale'}</button></div>`}
+        ? '<div class="loading"><span class="spinner"></span>Lulu examine ta plante…</div>'
+        : `<div class="btn-row"><button class="btn" id="diag-run" ${!(ds.photo || p.photo) ? 'disabled' : ''}>${icon('heart', 19)} ${ds.photo ? 'Diagnostiquer' : 'Diagnostiquer avec la photo principale'}</button></div>`}
     </div>
 
     <div class="card">
       <h2>Journal</h2>
       ${items.length
         ? `<ul class="timeline">${items.map((i) => timelineItemHtml(i, i === firstDiag)).join('')}</ul>`
-        : '<p class="muted small">Rien pour l\'instant. Notez un arrosage, un engrais ou une observation avec les boutons ci-dessus.</p>'}
+        : '<p class="muted small">Rien pour l\'instant. Notez un arrosage, un engrais ou une observation avec les boutons du haut.</p>'}
     </div>
 
     <div class="card">
       <h2>Infos</h2>
+      <p class="muted small">Ajoutée le ${esc(fmtDate(p.createdAt))}</p>
       <label for="loc">Emplacement</label>
       <input type="text" id="loc" value="${esc(p.location)}">
       <label for="nick">Surnom</label>
@@ -465,7 +517,7 @@ async function renderPlant(id) {
       <textarea id="pnotes">${esc(p.notes)}</textarea>
       <div class="btn-row"><button class="btn secondary" id="save-notes">Enregistrer</button></div>
       <div class="btn-row">
-        <label class="btn secondary" for="main-photo" style="margin:0">📷 Changer la photo principale</label>
+        <label class="btn secondary" for="main-photo" style="margin:0">${icon('camera', 19)} Changer la photo principale</label>
         <input class="visually-hidden" type="file" id="main-photo" accept="image/*">
       </div>
     </div>
