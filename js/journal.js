@@ -2,6 +2,7 @@
 // photos de suivi et diagnostics, réunis dans une même chronologie.
 
 import { newId } from './db.js';
+import { waterFactor, baseInterval, seasonContext } from './season.js';
 
 export const EVENT_TYPES = {
   water: { icon: '💧', label: 'Arrosage' },
@@ -46,17 +47,35 @@ export function daysSince(iso) {
   return Math.round((b - a) / 86400000);
 }
 
-export function waterStats(plant) {
+// Statistiques d'arrosage. « expected » est le rythme conseillé aujourd'hui :
+// la moyenne de vos intervalles, ramenée à la saison actuelle (mode saison),
+// ou un rythme par défaut selon la plante tant qu'il n'y a pas d'historique.
+export function waterStats(plant, now = new Date()) {
   const dates = [...new Set(plant.events.filter((e) => e.type === 'water').map((e) => e.date.slice(0, 10)))].sort();
-  if (!dates.length) return { last: null, days: null, avg: null, count: 0 };
+  const factorNow = waterFactor(plant, now);
+  const fallback = Math.max(2, Math.round(baseInterval(plant) * factorNow));
+  if (!dates.length) return { last: null, days: null, avg: null, count: 0, expected: fallback, learned: false };
   const last = dates[dates.length - 1];
   let avg = null;
+  let expected = fallback;
+  let learned = false;
   if (dates.length >= 2) {
     const recent = dates.slice(-6); // les 5 derniers intervalles
-    const span = (new Date(`${recent[recent.length - 1]}T12:00:00`) - new Date(`${recent[0]}T12:00:00`)) / 86400000;
+    const at = (iso) => new Date(`${iso}T12:00:00`);
+    const span = (at(recent[recent.length - 1]) - at(recent[0])) / 86400000;
     avg = Math.round(span / (recent.length - 1));
+    // Chaque intervalle est ramené au « rythme de printemps » selon le mois où il a eu lieu.
+    let norm = 0;
+    for (let i = 1; i < recent.length; i++) {
+      const a = at(recent[i - 1]); const b = at(recent[i]);
+      const mid = new Date((a.getTime() + b.getTime()) / 2);
+      norm += (b - a) / 86400000 / waterFactor(plant, mid);
+    }
+    norm /= recent.length - 1;
+    expected = Math.max(1, Math.round(norm * factorNow));
+    learned = true;
   }
-  return { last, days: daysSince(last), avg, count: dates.length };
+  return { last, days: daysSince(last), avg, count: dates.length, expected, learned };
 }
 
 export function lastEventDate(plant, type) {
@@ -80,6 +99,7 @@ export function historySummary(plant) {
   if (ws.last) {
     lines.push(`Dernier arrosage : il y a ${ws.days} jour(s)${ws.avg ? `, en moyenne tous les ${ws.avg} jours` : ''}.`);
   }
+  lines.push(seasonContext());
   const fert = lastEventDate(plant, 'fertilize');
   if (fert) lines.push(`Dernier engrais : il y a ${daysSince(fert)} jour(s).`);
   const repot = lastEventDate(plant, 'repot');

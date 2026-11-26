@@ -13,6 +13,10 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
 - **Journal par plante** : arrosages, engrais, rempotages, notes datées et photos de suivi,
   dans une chronologie avec les diagnostics. La fiche affiche « arrosée il y a X jours »,
   le rythme moyen d'arrosage, et signale quand un arrosage est peut-être dû.
+- **Mode saison** : le rythme d'arrosage conseillé s'adapte au mois (espacé en hiver, plus
+  fréquent en été, repos marqué pour les plantes grasses), à partir de vos propres arrosages.
+  Chaque fiche affiche les conseils de saison (engrais, rempotage, chauffage…), et le diagnostic
+  en tient compte. Réglable dans Réglages → Saisons (hémisphère nord ou sud).
 - **Diagnostic à la demande** : une photo + ce que vous avez remarqué → état général,
   problèmes repérés (manque d'eau, excès d'eau, lumière, parasites, jaunissement…),
   actions conseillées, arrosage et exposition. Utilise le petit modèle vision

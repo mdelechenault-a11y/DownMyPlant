@@ -6,6 +6,8 @@ const DEFAULTS = {
   plantnetKey: '',
   anthropicKey: '',
   theme: 'light', // light | dark | auto
+  seasonMode: true, // rythme d'arrosage et conseils selon la saison
+  hemisphere: 'north', // north | south
 };
 
 export function getSettings() {

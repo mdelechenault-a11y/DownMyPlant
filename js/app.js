@@ -7,6 +7,7 @@ import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
 import { diagnosePlant, testAnthropicKey } from './diagnose.js';
 import { APP_VERSION } from './version.js';
+import { seasonAdvice, seasonOf, SEASONS, fertilizeOk, seasonEnabled } from './season.js';
 import { icon, iconBadge, plantArt, lulu, luluSays, TYPE_COLORS } from './ui.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
@@ -38,8 +39,10 @@ function plantVisual(p, cls = '') {
     : `<div class="ph art-bg ${cls}">${plantArt(p.id || p.scientificName || '', p.scientificName)}</div>`;
 }
 
+// Soif : plus de jours que le rythme conseillé en ce moment (saison comprise).
+// Sans historique, on laisse un jour de marge au rythme par défaut.
 function isThirsty(ws) {
-  return !!(ws.avg && ws.days != null && ws.days > ws.avg);
+  return !!(ws.last && ws.days != null && ws.days > ws.expected + (ws.learned ? 0 : 1));
 }
 
 function waterPill(ws) {
@@ -173,7 +176,7 @@ async function renderPlants() {
     </div>
     ${thirsty
       ? luluSays('Coucou !', `${thirsty} plante${thirsty > 1 ? 's ont' : ' a'} peut-être soif aujourd'hui. On s'en occupe ?`)
-      : luluSays('Coucou !', 'Tout le monde a l\'air bien hydraté. Belle journée au jardin !')}
+      : luluSays('Coucou !', `Tout le monde a l'air bien hydraté. ${esc(seasonHello())}`)}
     <div class="plant-grid">
       ${plants.map((p) => {
         const last = p.diagnoses?.[0]?.result?.etat_general;
@@ -194,6 +197,17 @@ async function renderPlants() {
     el.onclick = () => go(`#/plant/${encodeURIComponent(el.dataset.id)}`);
   });
   view.querySelector('#add').onclick = () => go('#/identify');
+}
+
+// Petit mot de saison de Lulu sur l'accueil.
+function seasonHello() {
+  if (!seasonEnabled()) return 'Belle journée au jardin !';
+  return {
+    hiver: 'C\'est l\'hiver : tes plantes se reposent, j\'ai espacé leurs arrosages.',
+    printemps: 'C\'est le printemps : tout se réveille, on arrose un peu plus souvent.',
+    ete: 'C\'est l\'été : tes plantes boivent plus, je surveille !',
+    automne: 'Les jours raccourcissent : j\'espace doucement les arrosages.',
+  }[seasonOf()];
 }
 
 function keysNotice() {
@@ -431,6 +445,16 @@ function timelineItemHtml(item, open) {
     </li>`;
 }
 
+// Rythme d'arrosage conseillé en ce moment, et d'où il vient.
+function rhythmText(p, ws) {
+  const season = seasonEnabled() ? ` en ${SEASONS[seasonOf()].label.toLowerCase()}` : '';
+  const every = `tous les ${ws.expected} jour${ws.expected > 1 ? 's' : ''}`;
+  if (ws.learned) {
+    return `Conseillé${season} : ${every}${ws.avg !== ws.expected ? ` (votre moyenne : ${ws.avg} j)` : ''}`;
+  }
+  return `Conseillé${season} : environ ${every}. Notez les arrosages pour affiner.`;
+}
+
 // Brouillon du formulaire « Ajouter au journal », par plante.
 const entryState = {};
 
@@ -448,7 +472,8 @@ async function renderPlant(id) {
 
   showRoomChip(p.id);
   const late = isThirsty(ws);
-  const waterRatio = ws.avg && ws.days != null ? Math.min(1, Math.max(0.04, ws.days / ws.avg)) : 0;
+  const waterRatio = ws.last ? Math.min(1, Math.max(0.04, ws.days / ws.expected)) : 0;
+  const sa = seasonAdvice(p);
   view.innerHTML = `
     <div class="plant-head">
       <div class="thumb art-bg">${p.photo ? `<img src="${blobUrl(p.photo)}" alt="${esc(name)}">` : plantArt(p.id || p.scientificName || '', p.scientificName)}</div>
@@ -463,11 +488,21 @@ async function renderPlant(id) {
         ${iconBadge('drop', late ? 'var(--warn)' : 'var(--water)')}
         <div>
           <div class="water-main">${ws.last ? `Arrosée ${esc(agoText(ws.days))}` : 'Aucun arrosage noté'}</div>
-          ${ws.avg ? `<div class="muted small">Rythme moyen : tous les ${ws.avg} jours${late ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>` : '<div class="muted small">Notez les arrosages pour connaître son rythme.</div>'}
+          <div class="muted small">${rhythmText(p, ws)}${late ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>
         </div>
       </div>
-      ${ws.avg ? `<div class="water-bar ${late ? 'late' : ''}"><i style="width:${Math.round(waterRatio * 100)}%"></i></div>` : ''}
+      ${ws.last ? `<div class="water-bar ${late ? 'late' : ''}"><i style="width:${Math.round(waterRatio * 100)}%"></i></div>` : ''}
     </div>
+    ${seasonEnabled() ? `<details class="card season-card">
+      <summary>
+        ${iconBadge(sa.icon, sa.color)}
+        <div><div class="season-kicker">${esc(sa.label)} · ${esc(sa.month)}</div><div class="season-title">${esc(sa.title)}</div></div>
+        <span class="season-more">Conseils</span>
+      </summary>
+      <p class="small">${esc(sa.text)}</p>
+      <ul class="todo">${sa.tips.map((t) => `<li><span class="ck">${icon('check', 13)}</span><span>${esc(t)}</span></li>`).join('')}</ul>
+      ${sa.rhythm ? `<p class="muted small">${esc(sa.rhythm)}</p>` : ''}
+    </details>` : ''}
     <div class="quick-row">
       <button class="quick" data-quick="water">${iconBadge('drop', 'var(--water)')}Arrosée</button>
       <button class="quick" data-quick="fertilize">${iconBadge('sprout', 'var(--ok)')}Engrais</button>
@@ -539,6 +574,8 @@ async function renderPlant(id) {
       const fresh = await loadPlant(id);
       if (type === 'water' && fresh.events.some((e) => e.type === 'water' && e.date === todayIso())
         && !confirm("Un arrosage est déjà noté aujourd'hui. En ajouter un autre ?")) return;
+      if (type === 'fertilize' && !fertilizeOk()
+        && !confirm('C\'est la période de repos : l\'engrais n\'est pas conseillé avant le printemps. Le noter quand même ?')) return;
       addEvent(fresh, { type });
       await savePlant(fresh);
       toast(`${EVENT_TYPES[type].icon} ${EVENT_TYPES[type].label} noté`);
@@ -694,6 +731,19 @@ function renderSettings() {
       <p class="muted small" style="margin-top:8px">« Automatique » suit le mode clair ou sombre de l'iPhone.</p>
     </div>
     <div class="card">
+      <h2>Saisons</h2>
+      <p class="muted small">Le rythme d'arrosage conseillé et les conseils s'adaptent au mois : arrosages espacés en hiver, plus fréquents en été.</p>
+      <div class="chips" id="season-mode">
+        <button class="chip ${s.seasonMode !== false ? 'active' : ''}" data-v="on">Activé</button>
+        <button class="chip ${s.seasonMode === false ? 'active' : ''}" data-v="off">Désactivé</button>
+      </div>
+      <label>Hémisphère</label>
+      <div class="chips" id="hemisphere">
+        <button class="chip ${s.hemisphere !== 'south' ? 'active' : ''}" data-v="north">Nord (France, Europe…)</button>
+        <button class="chip ${s.hemisphere === 'south' ? 'active' : ''}" data-v="south">Sud</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>Reconnaissance (Pl@ntNet)</h2>
       <p class="muted small">Gratuit, 500 identifications par jour. Créez un compte sur
         <a href="https://my.plantnet.org/" target="_blank" rel="noopener">my.plantnet.org</a>,
@@ -783,6 +833,18 @@ function renderSettings() {
       saveSettings({ theme: c.dataset.theme });
       applyTheme(c.dataset.theme);
       view.querySelectorAll('#theme .chip').forEach((x) => x.classList.toggle('active', x === c));
+    };
+  });
+  view.querySelectorAll('#season-mode .chip').forEach((c) => {
+    c.onclick = () => {
+      saveSettings({ seasonMode: c.dataset.v === 'on' });
+      view.querySelectorAll('#season-mode .chip').forEach((x) => x.classList.toggle('active', x === c));
+    };
+  });
+  view.querySelectorAll('#hemisphere .chip').forEach((c) => {
+    c.onclick = () => {
+      saveSettings({ hemisphere: c.dataset.v });
+      view.querySelectorAll('#hemisphere .chip').forEach((x) => x.classList.toggle('active', x === c));
     };
   });
   view.querySelector('#export').onclick = exportBackup;
