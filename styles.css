@@ -394,3 +394,37 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 700; marg
 .season-more { font-size: 13px; font-weight: 700; color: var(--primary); }
 .season-card[open] .season-more { opacity: .5; }
 .season-card > p { margin: 10px 0 8px; }
+
+/* --- Suivi photo ------------------------------------------------------------ */
+
+.badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.evo-detail { display: flex; gap: 6px; align-items: flex-start; background: var(--accent-soft); border-radius: 12px; padding: 8px 10px; margin: 8px 0; }
+.evo-detail .ico { flex: none; margin-top: 1px; color: var(--accent); }
+.photo-card .row h2 { margin: 0; }
+.photo-card .nudge { display: flex; gap: 6px; align-items: center; color: var(--primary); font-weight: 700; margin: 6px 0 0; }
+.compare { position: relative; margin-top: 12px; aspect-ratio: 4/3; border-radius: 16px; overflow: hidden; background: var(--tile); touch-action: pan-y; }
+.compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.compare .compare-before { clip-path: inset(0 calc(100% - var(--pos)) 0 0); }
+.compare-line { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 3px; margin-left: -1.5px; background: #fff; box-shadow: 0 0 6px rgba(0,0,0,.3); pointer-events: none; }
+.compare-line::after { content: ''; position: absolute; top: 50%; left: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.compare-tag { position: absolute; bottom: 8px; font-size: 12px; font-weight: 800; color: #fff; background: rgba(40, 30, 28, .55); padding: 3px 9px; border-radius: 999px; pointer-events: none; }
+.compare-tag.left { left: 8px; }
+.compare-tag.right { right: 8px; }
+.compare input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: ew-resize; -webkit-appearance: none; appearance: none; }
+.compare-help { margin: 6px 0 0; }
+.frise { display: flex; gap: 8px; overflow-x: auto; padding: 10px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.frise-item { flex: none; width: 64px; padding: 0; border: 0; background: none; text-align: center; position: relative; scroll-snap-align: end; color: var(--muted); font: inherit; }
+.frise-item img { width: 64px; height: 64px; object-fit: cover; border-radius: 14px; display: block; border: 2.5px solid transparent; }
+.frise-item.before img { border-color: var(--primary); }
+.frise-item.after img { border-color: var(--accent); }
+.frise-item span { display: block; font-size: 11px; font-weight: 700; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frise-item .dot { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; }
+.frise-item .dot.good { background: var(--ok); } .frise-item .dot.warn { background: var(--warn); } .frise-item .dot.bad { background: var(--bad); }
+.frise-item:disabled { opacity: 1; cursor: default; }
+.timelapse { position: fixed; inset: 0; z-index: 50; background: #1b1513; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: calc(var(--safe-top) + 50px) 0 calc(var(--safe-bottom) + 40px); }
+.timelapse img { width: 100%; max-height: 75vh; object-fit: contain; }
+.tl-caption { color: #fff; font-family: var(--font-title); font-style: italic; font-size: 22px; margin-top: 14px; }
+.tl-progress { width: 60%; height: 4px; border-radius: 4px; background: rgba(255,255,255,.2); margin-top: 12px; overflow: hidden; }
+.tl-progress i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+.tl-close { position: absolute; top: calc(var(--safe-top) + 12px); right: 14px; }
+.photo-card .btn-row .btn { white-space: nowrap; padding-left: 10px; padding-right: 10px; }

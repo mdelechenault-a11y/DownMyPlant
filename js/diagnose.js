@@ -9,7 +9,7 @@ export const DIAG_MODEL = 'claude-haiku-5-5';
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['etat_general', 'resume', 'problemes', 'conseils', 'arrosage', 'lumiere', 'besoin_lumiere', 'a_surveiller'],
+  required: ['etat_general', 'resume', 'problemes', 'conseils', 'arrosage', 'lumiere', 'besoin_lumiere', 'a_surveiller', 'evolution', 'evolution_detail'],
   properties: {
     etat_general: { type: 'string', enum: ['bon', 'moyen', 'mauvais', 'indetermine'] },
     resume: { type: 'string', description: 'Une ou deux phrases sur l’état visible de la plante.' },
@@ -36,6 +36,12 @@ const SCHEMA = {
       description: 'La plante a-t-elle besoin de plus de lumière, de moins de lumière (ou de soleil direct), ou est-elle bien exposée ? Sert à lui suggérer une meilleure place dans la pièce.',
     },
     a_surveiller: { type: 'string', description: 'Ce qu’il faut observer dans les prochains jours.' },
+    evolution: {
+      type: 'string',
+      enum: ['mieux', 'stable', 'moins_bien', 'premiere', 'indetermine'],
+      description: 'Comparaison avec la photo précédente si elle est fournie : la plante va-t-elle mieux, pareil ou moins bien ? "premiere" s’il n’y a pas de photo précédente.',
+    },
+    evolution_detail: { type: 'string', description: 'Ce qui a changé entre les deux photos (une ou deux phrases), ou chaîne vide.' },
   },
 };
 
@@ -47,7 +53,10 @@ couleur et texture des feuilles, taches, jaunissement, brunissement des pointes,
 Déduis les causes probables (manque ou excès d'eau, manque ou excès de lumière, carence,
 parasites, maladie, rempotage nécessaire, froid...) et donne des conseils concrets et simples.
 Si la photo ne permet pas de juger, dis-le et mets etat_general à "indetermine".
-N'invente pas de symptômes absents de la photo. Réponds en français, phrases courtes.`;
+N'invente pas de symptômes absents de la photo. Réponds en français, phrases courtes.
+Si on te montre aussi une photo précédente de la même plante, compare-les (nouvelles feuilles,
+taches qui s'étendent ou non, couleur, port, volume) et dis si elle va mieux, pareil ou moins bien.
+Tiens compte du cadrage et de la lumière qui peuvent différer entre les deux photos.`;
 
 // Client navigateur. La clé part dans l'en-tête classique x-api-key ; le SDK
 // ajoute lui-même anthropic-dangerous-direct-browser-access: true (requis pour
@@ -61,13 +70,22 @@ function makeClient(apiKey) {
   });
 }
 
-export async function diagnosePlant({ photoBlob, plant, history, userNote, apiKey }) {
+// previous : { blob, date, diagnosis } — photo plus ancienne pour juger l'évolution (facultatif).
+export async function diagnosePlant({ photoBlob, plant, history, userNote, apiKey, previous }) {
   if (!apiKey) {
     throw new Error('Ajoutez votre clé Anthropic dans les Réglages pour utiliser le diagnostic.');
   }
 
   const client = makeClient(apiKey);
   const data = await blobToBase64(photoBlob);
+  const prevBlocks = [];
+  if (previous?.blob && previous.blob !== photoBlob) {
+    const d = previous.diagnosis?.result?.resume ? ` Diagnostic de l'époque : ${previous.diagnosis.result.resume}` : '';
+    prevBlocks.push(
+      { type: 'text', text: `Photo précédente de la même plante, du ${previous.date}.${d}` },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToBase64(previous.blob) } },
+    );
+  }
 
   const context = [
     plant?.scientificName && `Espèce identifiée : ${plant.scientificName}${plant.commonName ? ` (${plant.commonName})` : ''}.`,
@@ -90,8 +108,10 @@ export async function diagnosePlant({ photoBlob, plant, history, userNote, apiKe
       messages: [{
         role: 'user',
         content: [
+          ...prevBlocks,
+          ...(prevBlocks.length ? [{ type: 'text', text: 'Photo actuelle :' }] : []),
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } },
-          { type: 'text', text: `${context || 'Aucune information supplémentaire.'}\n\nQuel est l'état de cette plante et que faut-il faire ?` },
+          { type: 'text', text: `${context || 'Aucune information supplémentaire.'}\n\nQuel est l'état de cette plante et que faut-il faire ?${prevBlocks.length ? ' Va-t-elle mieux que sur la photo précédente ?' : ' (Pas de photo précédente : evolution = "premiere".)'}` },
         ],
       }],
     });
