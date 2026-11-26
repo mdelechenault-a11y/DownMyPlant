@@ -428,3 +428,6 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 700; marg
 .tl-progress i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
 .tl-close { position: absolute; top: calc(var(--safe-top) + 12px); right: 14px; }
 .photo-card .btn-row .btn { white-space: nowrap; padding-left: 10px; padding-right: 10px; }
+.search-row { display: flex; gap: 8px; align-items: center; }
+.search-row input { flex: 1; margin: 0; }
+.search-row .btn { width: auto; margin: 0; padding: 0 14px; flex: none; }

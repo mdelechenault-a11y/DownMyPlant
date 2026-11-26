@@ -7,8 +7,11 @@ import { icon, plantArt, luluSays } from './ui.js';
 import {
   edges, pointInPolygon, nearestWall, wallLength, outwardNormal, windowEnds, windowBearing, bearingLabel,
   planVector, COMPASS, WINDOW_TYPES, lightAt, levelOf, describeSpot, plantNeed, NEEDS, suggestSpot, fitAt,
-  getsDirectSun,
+  getsDirectSun, setSunDay, currentSun, windowSun, sunNowAt,
 } from './light.js';
+import {
+  getPlace, referenceDay, fmtHourRound, fmtDuration, weather, weatherLabel,
+} from './sun.js';
 
 let ctx; // { view, setHeader, go, toast, esc }
 const esc = (s) => ctx.esc(s);
@@ -102,7 +105,7 @@ export async function placementOf(plantId) {
       const spot = (room.windows || []).length ? describeSpot(room, [pl.x, pl.y]) : null;
       return {
         room,
-        text: spot ? `${room.name}, ${spot.where} (${spot.lv.label.toLowerCase()}${spot.direct ? ', soleil direct' : ''})` : room.name,
+        text: spot ? `${room.name}, ${spot.where} (${spot.lv.label.toLowerCase()}, ${spot.sun} aujourd'hui)` : room.name,
       };
     }
   }
@@ -240,6 +243,7 @@ function freshState(roomId) {
     roomId, room: null, plants: new Map(), rooms: [], mode: 'plants', showLight: true,
     sel: null, // { kind: 'plant'|'window'|'vertex', id }
     addType: 'window', drawing: null, suggestion: null, heat: null, heatKey: '', vb: null,
+    sunDay: 'today', sunMin: null, // vue Soleil : jour (today|summer|winter) et heure (minutes)
   };
 }
 
@@ -299,13 +303,13 @@ function computeViewBox() {
   const st = pageState;
   if (st.drawing) return { x: -0.5, y: -0.5, w: 11, h: 9 };
   const b = bounds(st.room.points);
-  const pad = st.mode === 'sun' ? 1.1 : 0.75;
+  const pad = st.mode === 'sun' ? 1.45 : 0.75;
   return { x: b.x0 - pad, y: b.y0 - pad, w: b.x1 - b.x0 + pad * 2, h: b.y1 - b.y0 + pad * 2 };
 }
 
 function heatmap() {
   const st = pageState; const room = st.room;
-  const key = JSON.stringify([room.points, room.windows, room.upBearing]);
+  const key = JSON.stringify([room.points, room.windows, room.upBearing, currentSun().key]);
   if (st.heatKey === key) return st.heat;
   const b = bounds(room.points);
   const step = 0.2; const cells = [];
@@ -329,6 +333,7 @@ function draw(panel = true) {
   const st = pageState;
   const svg = document.getElementById('plan');
   if (!svg) return;
+  setSunDay(st.mode === 'sun' && st.sunDay !== 'today' ? referenceDay(st.sunDay) : null);
   if (!st.vb || !st.dragging) st.vb = computeViewBox();
   const vb = st.vb;
   svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
@@ -399,6 +404,66 @@ function plantMarker(pl, plant, status, extraCls = '') {
   </g>`;
 }
 
+// Échantillon du soleil le plus proche de l'heure choisie dans la vue Soleil.
+function sunSample() {
+  const st = pageState; const sun = currentSun();
+  if (!sun.samples.length) return null;
+  if (st.sunMin == null) {
+    const now = new Date();
+    const m = now.getHours() * 60 + now.getMinutes();
+    const first = sun.samples[0].t; const last = sun.samples[sun.samples.length - 1].t;
+    const fm = first.getHours() * 60 + first.getMinutes(); const lm = last.getHours() * 60 + last.getMinutes();
+    st.sunMin = st.sunDay === 'today' && m >= fm && m <= lm ? m : Math.round((fm + lm) / 2 / 10) * 10;
+  }
+  let best = sun.samples[0];
+  for (const x of sun.samples) {
+    const xm = x.t.getHours() * 60 + x.t.getMinutes();
+    const bm = best.t.getHours() * 60 + best.t.getMinutes();
+    if (Math.abs(xm - st.sunMin) < Math.abs(bm - st.sunMin)) best = x;
+  }
+  return best;
+}
+
+function sunCourseSvg() {
+  const st = pageState; const room = st.room; const sun = currentSun();
+  const b = bounds(room.points);
+  const c = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+  const rx = (b.x1 - b.x0) / 2 + 0.6; const ry = (b.y1 - b.y0) / 2 + 0.6;
+  const at = (az) => { const v = planVector(az, room.upBearing || 0); return [c[0] + v[0] * rx, c[1] + v[1] * ry]; };
+  const parts = [];
+  // Tache de soleil à l'instant choisi.
+  const s = sunSample();
+  if (s && room.windows.length) {
+    const step = 0.1; const cells = [];
+    for (let x = b.x0; x < b.x1; x += step) {
+      for (let y = b.y0; y < b.y1; y += step) {
+        const p = [x + step / 2, y + step / 2];
+        if (pointInPolygon(p, room.points) && sunNowAt(room, p, s)) cells.push(`<rect x="${r2(x)}" y="${r2(y)}" width="${step + 0.005}" height="${step + 0.005}"/>`);
+      }
+    }
+    parts.push(`<g class="sun-patch" clip-path="url(#roomclip)" shape-rendering="crispEdges">${cells.join('')}</g>`);
+  }
+  // Arc : un point par heure, avec l'heure de lever, de midi et de coucher.
+  const pts = sun.samples.filter((x, i) => i % 3 === 0);
+  if (pts.length > 1) parts.push(`<polyline class="sun-path" points="${pts.map((x) => at(x.az).map(r2).join(',')).join(' ')}"/>`);
+  if (sun.samples.length) {
+    const first = sun.samples[0]; const last = sun.samples[sun.samples.length - 1];
+    const noon = sun.samples.reduce((a, x) => (x.alt > a.alt ? x : a));
+    [[first, 'lever'], [noon, 'midi'], [last, 'coucher']].forEach(([x, l]) => {
+      const p = at(x.az);
+      // Étiquette poussée vers l'extérieur de la pièce pour ne pas chevaucher le plan.
+      const v = planVector(x.az, room.upBearing || 0);
+      const lp = [p[0] + v[0] * 0.42, p[1] + v[1] * 0.3];
+      parts.push(`<g class="sun-mark small"><circle cx="${r2(p[0])}" cy="${r2(p[1])}" r="0.09"/><text x="${r2(lp[0])}" y="${r2(lp[1])}" font-size="0.15"><tspan x="${r2(lp[0])}" dy="0">${l}</tspan><tspan x="${r2(lp[0])}" dy="0.18">${fmtHourRound(x.t)}</tspan></text></g>`);
+    });
+  }
+  if (s) {
+    const p = at(s.az);
+    parts.push(`<g class="sun-now" transform="translate(${r2(p[0])} ${r2(p[1])})"><circle r="0.24"/><path transform="scale(0.03) translate(-12 -12)" d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></g>`);
+  }
+  return parts.join('');
+}
+
 function planSvg() {
   const st = pageState; const room = st.room; const vb = st.vb;
   const poly = room.points.map((p) => p.join(',')).join(' ');
@@ -442,18 +507,8 @@ function planSvg() {
     });
   }
 
-  // Soleil : course du soleil autour de la pièce
-  if (st.mode === 'sun') {
-    const b = bounds(room.points);
-    const c = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
-    const R = Math.max(b.x1 - b.x0, b.y1 - b.y0) / 2 + 0.55;
-    [[90, 'matin'], [180, 'midi'], [270, 'soir']].forEach(([deg, l]) => {
-      const v = planVector(deg, room.upBearing || 0);
-      const rx = Math.min(R, (b.x1 - b.x0) / 2 + 0.6); const ry = Math.min(R, (b.y1 - b.y0) / 2 + 0.6);
-      const p = [c[0] + v[0] * rx, c[1] + v[1] * ry];
-      parts.push(`<g class="sun-mark" transform="translate(${p[0]} ${p[1]})"><circle r="0.18"/><text y="0.42" font-size="0.17">${l}</text></g>`);
-    });
-  }
+  // Soleil : course réelle du soleil autour de la pièce, et tache de soleil à l'heure choisie
+  if (st.mode === 'sun') parts.push(sunCourseSvg());
 
   // Plantes
   if (st.mode === 'plants' || st.mode === 'sun') {
@@ -864,7 +919,7 @@ function selectedPlantPanel(pl, plant) {
     advice = better
       ? `<div class="advice">
           <div class="advice-title">${icon('star', 18)} Emplacement idéal</div>
-          <p>${esc(sug.why)}. Le mieux : <strong>${esc(sug.spot.lv.label.toLowerCase())}</strong>, ${esc(sug.spot.where)}${sug.spot.direct ? ', avec du soleil direct' : ''}.</p>
+          <p>${esc(sug.why)}. Le mieux : <strong>${esc(sug.spot.lv.label.toLowerCase())}</strong>, ${esc(sug.spot.where)} (${esc(sug.spot.sun)} aujourd'hui).</p>
           <div class="btn-row"><button class="btn" id="move-ideal">Déplacer ici</button></div>
         </div>`
       : `<div class="advice ok"><div class="advice-title">${icon('check', 18)} Bon emplacement</div>
@@ -880,7 +935,7 @@ function selectedPlantPanel(pl, plant) {
         ${fit ? `<span class="badge ${STATUS[fit.status].cls}">${STATUS[fit.status].label}</span>` : ''}
       </div>
       <dl class="kv">
-        ${here ? `<dt>Ici</dt><dd>${esc(here.lv.label)}${here.direct ? ' · soleil direct' : ''}<br><span class="muted small">${esc(here.where)}</span></dd>` : ''}
+        ${here ? `<dt>Ici</dt><dd>${esc(here.lv.label)}<br><span class="muted small">${esc(here.where)}</span><br><span class="muted small">${esc(cap(here.sun))} aujourd'hui</span></dd>` : ''}
         <dt>Besoin</dt><dd>${esc(need.label)}<br><span class="muted small">${esc(need.source)}</span></dd>
         ${fit?.diag ? `<dt>Diagnostic</dt><dd>${fit.diag.addressed ? 'Demandait' : 'Demande'} ${fit.diag.dir === 'plus' ? 'plus' : 'moins'} de lumière${fit.diag.addressed ? ' · déjà déplacée' : ''}${fit.diag.text ? `<br><span class="muted small">« ${esc(fit.diag.text)} »</span>` : ''}</dd>` : ''}
       </dl>
@@ -979,14 +1034,39 @@ function windowsPanel() {
     ${room.windows.length ? `<div class="card"><h2>Ouvertures</h2><div class="pl-list">${list}</div></div>` : ''}`;
 }
 
+const SUN_DAYS = [['today', 'Aujourd\'hui'], ['summer', '21 juin'], ['winter', '21 décembre']];
+
 function sunPanel() {
   const st = pageState; const room = st.room;
   const up = room.upBearing || 0;
+  const sun = currentSun();
+  const place = getPlace();
+  const s = sunSample();
+  const dayLen = sun.samples.reduce((a, x) => a + x.hours, 0);
   const wins = room.windows.map((w) => {
     const b = windowBearing(room, w);
-    return `<li><strong>${esc(WINDOW_TYPES[w.type].label)} ${esc(bearingLabel(b).toLowerCase())}</strong> : ${esc(exposureText(b))}</li>`;
+    const ws = windowSun(b, sun);
+    const when = ws.hours >= 0.25 ? `soleil de ${fmtHourRound(ws.from)} à ${fmtHourRound(new Date(ws.to.getTime() + 20 * 60000))} (${fmtDuration(ws.hours)})` : 'pas de soleil direct';
+    return `<li><strong>${esc(WINDOW_TYPES[w.type].label)} ${esc(bearingLabel(b).toLowerCase())}</strong> : ${esc(when)}</li>`;
   }).join('');
+  const firstM = sun.samples.length ? sun.samples[0].t.getHours() * 60 + sun.samples[0].t.getMinutes() : 360;
+  const lastS = sun.samples[sun.samples.length - 1];
+  const lastM = lastS ? lastS.t.getHours() * 60 + lastS.t.getMinutes() : 1200;
   return `
+    <div class="card sun-card">
+      <div class="row"><h2>Course du soleil</h2>
+        <span class="muted small">${icon('pin', 13)} ${esc(place.name || 'Ma position')}${place.isDefault ? ' (par défaut)' : ''}</span></div>
+      ${place.isDefault ? '<p class="small notice-inline">Calcul fait pour Paris. Indiquez votre ville dans <a href="#/settings">Réglages → Ma ville</a> pour un soleil exact.</p>' : ''}
+      <div class="chips" id="sun-day">
+        ${SUN_DAYS.map(([k, l]) => `<button class="chip ${st.sunDay === k ? 'active' : ''}" data-v="${k}">${l}</button>`).join('')}
+      </div>
+      ${s ? `<label for="sun-time" class="sun-time-label"><span id="sun-time-val">${esc(fmtHourRound(s.t))}</span>
+          <span class="muted small" id="sun-time-info">${esc(sunInfo(s))}</span></label>
+        <input type="range" id="sun-time" min="${firstM}" max="${lastM}" step="10" value="${Math.min(lastM, Math.max(firstM, st.sunMin))}">
+        <p class="muted small">Le jaune vif montre où le soleil tape à cette heure. Jour de ${esc(fmtDuration(dayLen))}, lever à ${esc(fmtHourRound(sun.sunrise))}, coucher à ${esc(fmtHourRound(sun.sunset))}.</p>` : '<p class="muted small">Le soleil ne se lève pas ce jour-là ici.</p>'}
+      ${room.windows.length ? `<ul class="clean">${wins}</ul>${lightLegend()}` : '<div class="notice">Ajoutez les fenêtres pour voir l\'ensoleillement de la pièce.</div>'}
+      <div id="weather" class="weather"></div>
+    </div>
     <div class="card">
       <h2>Orientation</h2>
       <p class="muted small">Vers où regarde le mur du <strong>haut du plan</strong> ?</p>
@@ -997,9 +1077,30 @@ function sunPanel() {
       <input type="range" id="up-range" min="0" max="355" step="5" value="${Math.round(up)}">
       <div class="btn-row"><button class="btn secondary" id="use-compass">${icon('compass', 18)} Mesurer avec la boussole du téléphone</button></div>
       <p class="muted small" id="compass-help" hidden>Tenez le téléphone à plat, le haut de l'écran pointé vers le mur du haut du plan, puis patientez.</p>
-    </div>
-    ${room.windows.length ? `<div class="card"><h2>Ensoleillement</h2><ul class="clean">${wins}</ul>${lightLegend()}</div>`
-      : '<div class="notice">Ajoutez les fenêtres pour voir l\'ensoleillement de la pièce.</div>'}`;
+    </div>`;
+}
+
+function sunInfo(s) {
+  return `${Math.round(s.alt)}° au-dessus de l'horizon, plein ${bearingLabel(s.az).toLowerCase()}`;
+}
+
+// Météo des prochains jours (si en ligne).
+async function showWeather() {
+  const box = document.getElementById('weather');
+  if (!box) return;
+  try {
+    const days = await weather();
+    if (!document.getElementById('weather')) return;
+    const names = ['Aujourd\'hui', 'Demain'];
+    box.innerHTML = `<div class="weather-row">${days.map((d, i) => `<div class="wday">
+      <strong>${i < 2 ? names[i] : cap(new Date(`${d.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long' }))}</strong>
+      <span>${icon(d.sunHours >= 3 ? 'sun' : 'drop', 16)} ${esc(weatherLabel(d.code))}</span>
+      <span class="muted small">${esc(fmtDuration(d.sunHours))} de soleil · ${Math.round(d.tmin)}° / ${Math.round(d.tmax)}°</span>
+    </div>`).join('')}</div>
+    ${days[0] && days[0].sunHours >= 5 && days[0].tmax >= 26 ? '<p class="small warn-text">Grand soleil et chaleur aujourd\'hui : éloignez de la vitre les plantes fragiles exposées l\'après-midi.</p>' : ''}`;
+  } catch {
+    box.innerHTML = '<p class="muted small">Météo indisponible hors connexion.</p>';
+  }
 }
 
 async function setUp(deg) {
@@ -1126,6 +1227,20 @@ function bindPanel(panel) {
   }
 
   // Soleil
+  panel.querySelectorAll('#sun-day .chip').forEach((c) => {
+    c.onclick = () => { st.sunDay = c.dataset.v; st.sunMin = null; st.heatKey = ''; draw(); };
+  });
+  const tr = q('#sun-time');
+  if (tr) {
+    tr.oninput = () => {
+      st.sunMin = Number(tr.value);
+      const s = sunSample();
+      q('#sun-time-val').textContent = fmtHourRound(s.t);
+      q('#sun-time-info').textContent = sunInfo(s);
+      document.getElementById('plan').innerHTML = planSvg();
+    };
+  }
+  if (q('#weather')) showWeather();
   panel.querySelectorAll('#up-chips .chip').forEach((c) => { c.onclick = () => setUp(Number(c.dataset.v)); });
   const ur = q('#up-range');
   if (ur) {

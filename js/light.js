@@ -1,5 +1,8 @@
 // Modèle de lumière d'une pièce et besoins en lumière des plantes.
-// Tout est calculé sur l'appareil, sans appel réseau.
+// Tout est calculé sur l'appareil, sans appel réseau : la course du soleil
+// vient de sun.js (ville choisie dans Réglages, Paris par défaut).
+
+import { sunContext, fmtHourRound, fmtDuration } from './sun.js';
 //
 // Coordonnées du plan : mètres, x vers la droite, y vers le bas (comme le SVG).
 // room.upBearing : direction (boussole, en degrés) vers laquelle regarde le haut du plan
@@ -105,15 +108,117 @@ export function windowBearing(room, w) {
   return bearingOf(outwardNormal(room.points, w.wall), room.upBearing || 0);
 }
 
-// Apport de lumière selon l'exposition (hémisphère nord) : 1 au sud, 0,3 au nord.
-export function exposureFactor(bearing) {
-  const r = (bearing * Math.PI) / 180;
-  return 0.3 + 0.7 * ((1 - Math.cos(r)) / 2) ** 0.8;
+// --- Soleil réel -------------------------------------------------------------
+// Le calcul se fait pour un jour donné (aujourd'hui par défaut) : la vue Soleil
+// peut choisir un autre jour (solstices) avec setSunDay().
+
+const RAD = Math.PI / 180;
+let sunDay = null; // null = aujourd'hui
+export function setSunDay(day) { sunDay = day; }
+export function currentSun() { return sunContext(sunDay || new Date()); }
+
+const WINDOW_TOP = 2.1; // haut d'une fenêtre (m)
+const SILL = { window: 0.9, french: 0 }; // hauteur d'allège
+const PLANT_H = 0.5; // hauteur où l'on regarde la lumière (feuillage d'une plante en pot)
+
+// Rayonnement direct reçu par une vitre verticale orientée `bearing`, sur la journée.
+function windowDirect(bearing, samples) {
+  let e = 0;
+  for (const s of samples) {
+    const c = Math.cos((s.az - bearing) * RAD);
+    if (c <= 0) continue;
+    const sinAlt = Math.max(0.05, Math.sin(s.alt * RAD));
+    const trans = 0.7 ** ((1 / sinAlt) ** 0.678); // atténuation par l'atmosphère
+    e += c * Math.cos(s.alt * RAD) * trans * s.hours;
+  }
+  return e;
 }
 
-// Le soleil entre directement par les fenêtres orientées de l'est à l'ouest (par le sud).
-export function getsDirectSun(bearing) {
-  return bearing > 65 && bearing < 295;
+// Référence : vitre plein sud à l'équinoxe, latitude 46° N (vaut 1 dans le modèle).
+let refE = null;
+function referenceDirect() {
+  if (refE == null) {
+    const phi = 46 * RAD; const samples = [];
+    for (let h = -6; h <= 6; h += 1 / 3) {
+      const H = h * 15 * RAD;
+      const alt = Math.asin(Math.cos(phi) * Math.cos(H));
+      if (alt <= 0.02) continue;
+      const az = 180 + Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi)) / RAD;
+      samples.push({ az, alt: alt / RAD, hours: 1 / 3 });
+    }
+    refE = windowDirect(180, samples) || 1;
+  }
+  return refE;
+}
+
+// Apport de lumière d'une fenêtre selon son orientation et la course du soleil du jour :
+// 0,3 de lumière du ciel + la part de soleil direct (0,7 pour une vitre sud à l'équinoxe).
+export function exposureFactor(bearing, sun = currentSun()) {
+  return Math.min(1.4, 0.3 + 0.7 * (windowDirect(bearing, sun.samples) / referenceDirect()));
+}
+
+// Heures où le soleil touche la vitre, et plage horaire.
+export function windowSun(bearing, sun = currentSun()) {
+  let hours = 0; let from = null; let to = null;
+  for (const s of sun.samples) {
+    if (Math.cos((s.az - bearing) * RAD) > 0.08 && s.alt > 3) {
+      hours += s.hours;
+      if (!from) from = s.t;
+      to = s.t;
+    }
+  }
+  return { hours, from, to };
+}
+
+export function getsDirectSun(bearing, sun = currentSun()) {
+  return windowSun(bearing, sun).hours >= 0.5;
+}
+
+// Le point p reçoit-il le soleil par cette fenêtre à cet instant ?
+function sunThrough(room, win, p, s, walls) {
+  if (s.alt < 2) return false;
+  const { w, A, B, n } = win;
+  const v = planVector(s.az, room.upBearing || 0); // direction du soleil sur le plan
+  if (v[0] * n[0] + v[1] * n[1] <= 0.05) return false; // soleil derrière cette façade
+  const ex = B[0] - A[0]; const ey = B[1] - A[1];
+  const den = v[0] * ey - v[1] * ex;
+  if (Math.abs(den) < 1e-9) return false;
+  const t = ((A[0] - p[0]) * ey - (A[1] - p[1]) * ex) / den; // distance jusqu'à la vitre
+  const u = ((A[0] - p[0]) * v[1] - (A[1] - p[1]) * v[0]) / den; // position le long de la vitre
+  if (t <= 0 || u < 0 || u > 1) return false;
+  // Le rayon passe-t-il entre l'allège et le haut de la fenêtre ?
+  const z = PLANT_H + t * Math.tan(s.alt * RAD);
+  if (z > WINDOW_TOP || z < (SILL[w.type] ?? 0.9)) return false;
+  const hit = [p[0] + v[0] * t, p[1] + v[1] * t];
+  return !walls.some(([a, b], i) => i !== w.wall && segmentsCross(p, hit, a, b));
+}
+
+function windowsOf(room) {
+  return (room.windows || []).map((w) => {
+    const [A, B] = windowEnds(room, w);
+    return { w, A, B, n: outwardNormal(room.points, w.wall) };
+  });
+}
+
+// Soleil direct en un point sur la journée : { hours, from, to }.
+export function sunAt(room, p, sun = currentSun()) {
+  const walls = edges(room.points);
+  const wins = windowsOf(room);
+  let hours = 0; let from = null; let to = null;
+  for (const s of sun.samples) {
+    if (wins.some((win) => sunThrough(room, win, p, s, walls))) {
+      hours += s.hours;
+      if (!from) from = s.t;
+      to = s.t;
+    }
+  }
+  return { hours, from, to };
+}
+
+// Soleil direct en un point à un instant précis (pour la tache de soleil de la vue Soleil).
+export function sunNowAt(room, p, s) {
+  const walls = edges(room.points);
+  return windowsOf(room).some((win) => sunThrough(room, win, p, s, walls));
 }
 
 export const WINDOW_TYPES = {
@@ -123,18 +228,18 @@ export const WINDOW_TYPES = {
 
 // --- Lumière en un point ---------------------------------------------------
 
-// Renvoie { level (≈ 0 à 1+), direct (bool), main (fenêtre principale) }.
-export function lightAt(room, p) {
-  let level = 0; let direct = false; let main = null; let mainV = 0;
+// Renvoie { level (≈ 0 à 1+), direct (≥ 1 h de soleil direct), sunHours, sunFrom, sunTo, main }.
+export function lightAt(room, p, sun = currentSun()) {
+  let level = 0; let main = null; let mainV = 0;
   const walls = edges(room.points);
   for (const w of room.windows || []) {
     const [A, B] = windowEnds(room, w);
     const nOut = outwardNormal(room.points, w.wall);
     const nIn = [-nOut[0], -nOut[1]];
     const bearing = bearingOf(nOut, room.upBearing || 0);
-    const gain = exposureFactor(bearing) * (WINDOW_TYPES[w.type]?.gain || 1);
+    const gain = exposureFactor(bearing, sun) * (WINDOW_TYPES[w.type]?.gain || 1);
     const N = 5;
-    let v = 0; let bestCos = 0; let minR = Infinity;
+    let v = 0; let minR = Infinity;
     for (let k = 0; k < N; k++) {
       const t = (k + 0.5) / N;
       const S = [A[0] + (B[0] - A[0]) * t + nIn[0] * 0.01, A[1] + (B[1] - A[1]) * t + nIn[1] * 0.01];
@@ -145,15 +250,14 @@ export function lightAt(room, p) {
       // Un mur entre la fenêtre et le point (pièce en L) bloque la lumière.
       if (walls.some(([a, b], i) => i !== w.wall && segmentsCross(S, p, a, b))) continue;
       v += (cos * (w.width / N)) / (1 + (r / 1.2) ** 2);
-      if (cos > bestCos) bestCos = cos;
       if (r < minR) minR = r;
     }
     v *= gain;
     level += v;
     if (v > mainV) { mainV = v; main = { window: w, bearing, distance: minR }; }
-    if (getsDirectSun(bearing) && minR < 1.6 && bestCos > 0.55) direct = true;
   }
-  return { level, direct, main };
+  const sa = main ? sunAt(room, p, sun) : { hours: 0, from: null, to: null };
+  return { level, direct: sa.hours >= 1, sunHours: sa.hours, sunFrom: sa.from, sunTo: sa.to, main };
 }
 
 export const LIGHT_LEVELS = [
@@ -170,14 +274,21 @@ export function levelOf(value) {
 }
 
 export function describeSpot(room, p) {
-  const { level, direct, main } = lightAt(room, p);
+  const info = lightAt(room, p);
+  const { level, direct, main } = info;
   const lv = levelOf(level);
   let where = 'loin des fenêtres';
   if (main) {
     const d = main.distance;
     where = `à ${d < 1 ? `${Math.round(d * 100)} cm` : `${d.toFixed(1).replace('.', ',')} m`} d'une ${WINDOW_TYPES[main.window.type]?.label.toLowerCase() || 'fenêtre'} ${bearingLabel(main.bearing).toLowerCase()}`;
   }
-  return { level, direct, lv, where };
+  return { level, direct, lv, where, sun: sunText(info), sunHours: info.sunHours };
+}
+
+// « 2 h 30 de soleil direct, de 11 h à 13 h 30 » (pour le jour calculé).
+export function sunText(info) {
+  if (!info.sunHours || info.sunHours < 0.25) return 'pas de soleil direct';
+  return `${fmtDuration(info.sunHours)} de soleil direct, de ${fmtHourRound(info.sunFrom)} à ${fmtHourRound(new Date(info.sunTo.getTime() + 20 * 60000))}`;
 }
 
 // --- Besoins des plantes ---------------------------------------------------
@@ -272,8 +383,12 @@ const PLANT_GAP = 0.5; // distance mini entre deux plantes
 // Note un point pour une plante : plus c'est haut, mieux c'est.
 function scoreFor(need, target, info) {
   let s = -Math.abs(Math.log((info.level + 0.02) / (target + 0.02)));
-  if (info.direct && need.direct === 'non') s -= 0.6;
-  if (info.direct && need.direct === 'matin') s -= 0.15;
+  const h = info.sunHours || 0;
+  if (need.direct === 'non' && h > 0.5) s -= 0.6 * Math.min(1, h / 3);
+  if (need.direct === 'matin' && info.direct) {
+    // Soleil du matin toléré, soleil chaud de l'après-midi à éviter.
+    s -= info.sunTo && info.sunTo.getHours() >= 14 ? 0.35 : 0.1;
+  }
   if (!info.direct && need.direct === 'aime') s -= 0.2;
   return s;
 }
