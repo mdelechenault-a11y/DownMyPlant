@@ -34,11 +34,38 @@
   --font-body: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
-  color-scheme: light dark;
+  color-scheme: light;
 }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="auto"] { color-scheme: light dark; }
 
+/* Thème sombre : choisi dans Réglages, ou automatique (suit l'iPhone). */
+:root[data-theme="dark"] {
+    --bg: #1f1a19;
+    --surface: #2a2321;
+    --text: #f3e9e2;
+    --muted: #b3a49c;
+    --line: #3d3330;
+    --primary: #e59ab0;
+    --primary-soft: #45303a;
+    --on-primary: #2a1a20;
+    --accent: #9cc4a3;
+    --accent-soft: #2c3a2f;
+    --ok: #9cc4a3;
+    --warn: #e5b27c;
+    --warn-soft: #43342a;
+    --bad: #f08a96;
+    --bad-soft: #472a2e;
+    --water: #7fc0f0;
+    --lilac: #c2b0e6;
+    --tile: #332a27;
+    --wash-1: #4a3138;
+    --wash-2: #2f3c31;
+    --wash-3: #463729;
+    --shadow: 0 6px 18px rgba(0, 0, 0, .3);
+  }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme="auto"] {
     --bg: #1f1a19;
     --surface: #2a2321;
     --text: #f3e9e2;

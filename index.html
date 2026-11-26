@@ -1,12 +1,18 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>DownMyPlant</title>
   <meta name="description" content="Reconnaître vos plantes et prendre soin de votre parc.">
-  <meta name="theme-color" content="#fbf6ee" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1f1a19" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbf6ee">
+  <script>
+    // Thème choisi dans Réglages (clair par défaut), appliqué avant l'affichage.
+    try {
+      var t = (JSON.parse(localStorage.getItem('downmyplant.settings') || '{}').theme) || 'light';
+      if (t === 'dark' || t === 'auto') document.documentElement.dataset.theme = t;
+    } catch (e) { /* clair */ }
+  </script>
   <link rel="manifest" href="manifest.webmanifest">
   <!-- iOS : écran d'accueil -->
   <meta name="apple-mobile-web-app-capable" content="yes">
