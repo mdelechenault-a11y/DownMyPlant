@@ -112,3 +112,40 @@ export function historySummary(plant) {
   }
   return lines.join('\n');
 }
+
+// --- Suivi photo -----------------------------------------------------------
+
+// Toutes les photos d'une plante, de la plus ancienne à la plus récente :
+// photo principale, photos du journal et photos des diagnostics.
+export function photoHistory(plant) {
+  const out = [];
+  if (plant.photo) {
+    out.push({ id: 'main', date: (plant.photoAt || plant.createdAt || new Date().toISOString()).slice(0, 10), blob: plant.photo, source: 'main' });
+  }
+  plant.events.filter((e) => e.photo).forEach((e) => out.push({
+    id: e.id, date: e.date.slice(0, 10), blob: e.photo, source: 'event', text: e.text,
+  }));
+  plant.diagnoses.filter((d) => d.photo).forEach((d) => out.push({
+    id: d.id, date: d.date.slice(0, 10), blob: d.photo, source: 'diagnosis', etat: d.result?.etat_general, evolution: d.result?.evolution,
+  }));
+  return out.sort((a, b) => a.date.localeCompare(b.date) || (a.source === 'main' ? -1 : 1));
+}
+
+// Photo de référence pour comparer un nouveau diagnostic : la plus récente
+// prise il y a au moins `minDays` jours (sinon la plus ancienne disponible).
+export function referencePhoto(plant, minDays = 7) {
+  const all = photoHistory(plant);
+  if (!all.length) return null;
+  const old = all.filter((p) => daysSince(p.date) >= minDays);
+  const ref = old.length ? old[old.length - 1] : null;
+  if (!ref) return null;
+  // Diagnostic fait à cette date ou juste avant : son résumé aide à comparer.
+  const diag = plant.diagnoses.find((d) => d.date.slice(0, 10) <= ref.date && d.result?.resume);
+  return { ...ref, diagnosis: diag || null };
+}
+
+// Jours depuis la dernière photo (null si aucune).
+export function daysSinceLastPhoto(plant) {
+  const all = photoHistory(plant);
+  return all.length ? daysSince(all[all.length - 1].date) : null;
+}

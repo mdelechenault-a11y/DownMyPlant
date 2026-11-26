@@ -26,6 +26,7 @@ const PATHS = {
   door: '<path d="M5.5 20.5V3.5h13v17"/><path d="M3.5 20.5h17"/><path d="M12 3.5v17"/><path d="M10 12.5v1M14 12.5v1"/>',
   shape: '<path d="M4.5 5h9v6h6v8.5h-15z"/><circle cx="4.5" cy="5" r="1.4"/><circle cx="13.5" cy="11" r="1.4"/><circle cx="19.5" cy="19.5" r="1.4"/>',
   compass: '<circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2l-1.6 4-4 1.6 1.6-4z"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
   snow: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path d="M9.5 4.5L12 7l2.5-2.5M9.5 19.5L12 17l2.5 2.5"/>',
   star: '<path d="M12 3.8l2.4 5 5.4.7-4 3.7 1 5.4-4.8-2.6-4.8 2.6 1-5.4-4-3.7 5.4-.7z"/>',
 };

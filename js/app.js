@@ -11,6 +11,7 @@ import { seasonAdvice, seasonOf, SEASONS, fertilizeOk, seasonEnabled } from './s
 import { icon, iconBadge, plantArt, lulu, luluSays, TYPE_COLORS } from './ui.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
+  photoHistory, referencePhoto, daysSinceLastPhoto,
 } from './journal.js';
 
 const view = document.getElementById('view');
@@ -384,9 +385,21 @@ function etatBadge(etat) {
   return `<span class="badge ${cls}">${icon('heart', 13)}${label}</span>`;
 }
 
+const EVOLUTION = {
+  mieux: ['good', 'Va mieux'],
+  stable: ['warn', 'Stable'],
+  moins_bien: ['bad', 'Moins bien'],
+};
+
+function evolutionBadge(r) {
+  const e = EVOLUTION[r?.evolution];
+  return e ? `<span class="badge ${e[0]}">${icon('image', 13)}${e[1]}</span>` : '';
+}
+
 function diagDetailsHtml(entry) {
   const r = entry.result || {};
   return `
+      ${r.evolution_detail && EVOLUTION[r.evolution] ? `<p class="small evo-detail">${icon('image', 15)} ${esc(r.evolution_detail)}</p>` : ''}
       ${entry.photo ? `<img class="hero" style="margin:8px 0;aspect-ratio:16/9" src="${blobUrl(entry.photo)}" alt="Photo du diagnostic">` : ''}
       ${entry.note ? `<p class="muted small">Remarque : ${esc(entry.note)}</p>` : ''}
       ${r.problemes?.length ? `
@@ -425,7 +438,7 @@ function timelineItemHtml(item, open) {
         ${tlDot('diagnosis')}
         <div class="tl-body">
           <div class="row"><strong>Diagnostic</strong><span class="muted small">${esc(fmtDate(item.date))}</span></div>
-          <div style="margin:4px 0">${etatBadge(r.etat_general)}</div>
+          <div class="badge-row">${etatBadge(r.etat_general)}${evolutionBadge(r)}</div>
           <p class="small">${esc(r.resume)}</p>
           <details ${open ? 'open' : ''}><summary class="small">Détails et conseils</summary>${diagDetailsHtml(item)}</details>
           ${del}
@@ -443,6 +456,109 @@ function timelineItemHtml(item, open) {
         ${del}
       </div>
     </li>`;
+}
+
+function fmtShort(iso) {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: sameYear ? 'long' : 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+// --- Suivi photo -------------------------------------------------------------
+
+const photoState = {}; // par plante : { before (id de la photo « avant »), playing }
+let playTimer = null;
+
+function photoCardHtml(p, ps) {
+  const all = photoHistory(p);
+  const since = daysSinceLastPhoto(p);
+  const nudge = since == null || since >= 30;
+  const add = `<label class="btn secondary" for="track-photo" style="margin:0">${icon('camera', 19)} Nouvelle photo</label>
+    <input class="visually-hidden" type="file" id="track-photo" accept="image/*">`;
+  if (all.length < 2) {
+    return `<div class="card">
+      <h2>Suivi photo</h2>
+      <p class="muted small">Prenez une photo de temps en temps, sous le même angle : vous verrez votre plante grandir, et le diagnostic dira si elle va mieux.</p>
+      <div class="btn-row">${add}</div>
+    </div>`;
+  }
+  const after = all[all.length - 1];
+  const before = all.find((x) => x.id === ps.before && x !== after) || all[0];
+  const span = daysSince(before.date) - daysSince(after.date);
+  return `<div class="card photo-card">
+    <div class="row"><h2>Suivi photo</h2><span class="muted small">${all.length} photos</span></div>
+    ${nudge ? `<p class="small nudge">${icon('sparkle', 15)} ${since == null ? '' : `Dernière photo il y a ${since} jours. `}Une nouvelle photo ce mois-ci ?</p>` : ''}
+    <div class="compare" id="compare" style="--pos:50%">
+      <img src="${blobUrl(after.blob)}" alt="Photo du ${esc(fmtDate(after.date))}">
+      <img class="compare-before" src="${blobUrl(before.blob)}" alt="Photo du ${esc(fmtDate(before.date))}">
+      <span class="compare-line"></span>
+      <span class="compare-tag left">${esc(fmtShort(before.date))}</span>
+      <span class="compare-tag right">${esc(fmtShort(after.date))}</span>
+      <input type="range" id="compare-range" min="0" max="100" value="50" aria-label="Comparer avant et après">
+    </div>
+    <p class="muted small compare-help">Glissez pour comparer${span > 0 ? ` : ${span} jours d'écart` : ''}. Touchez une vignette pour changer la photo « avant ».</p>
+    <div class="frise" id="frise">
+      ${all.map((x) => `<button class="frise-item ${x === before ? 'before' : ''} ${x === after ? 'after' : ''}" data-ph="${esc(x.id)}" ${x === after ? 'disabled' : ''}>
+        <img src="${blobUrl(x.blob)}" alt="">
+        <span>${esc(fmtShort(x.date))}</span>
+        ${x.source === 'diagnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moyen: 'warn', mauvais: 'bad' })[x.etat] || 'warn'}"></i>` : ''}
+      </button>`).join('')}
+    </div>
+    <div class="btn-row">
+      <button class="btn secondary" id="play-photos">${icon('eye', 19)} Animer</button>
+      ${add}
+    </div>
+  </div>`;
+}
+
+// Diaporama plein écran des photos, de la plus ancienne à la plus récente.
+function playPhotos(all) {
+  clearInterval(playTimer);
+  const ov = document.createElement('div');
+  ov.className = 'timelapse';
+  ov.innerHTML = `<img alt=""><div class="tl-caption"></div><div class="tl-progress"><i></i></div><button class="icon-btn tl-close" aria-label="Fermer">${icon('close', 20)}</button>`;
+  document.body.appendChild(ov);
+  const img = ov.querySelector('img'); const cap = ov.querySelector('.tl-caption'); const bar = ov.querySelector('.tl-progress i');
+  let i = 0;
+  const show = () => {
+    const x = all[i];
+    img.src = blobUrl(x.blob);
+    cap.textContent = fmtDate(x.date);
+    bar.style.width = `${((i + 1) / all.length) * 100}%`;
+  };
+  const close = () => { clearInterval(playTimer); ov.remove(); };
+  show();
+  playTimer = setInterval(() => {
+    i += 1;
+    if (i >= all.length) { clearInterval(playTimer); return; }
+    show();
+  }, 900);
+  ov.onclick = close;
+}
+
+function bindPhotoCard(p, ps) {
+  const input = view.querySelector('#track-photo');
+  if (input) {
+    input.onchange = async (e) => {
+      const blob = await readPhotoInput(e.target).catch(() => null);
+      if (!blob) return;
+      const fresh = await loadPlant(p.id);
+      addEvent(fresh, { type: 'photo', photo: blob });
+      await savePlant(fresh);
+      toast('Photo ajoutée au suivi');
+      renderPlant(p.id);
+    };
+  }
+  const cmp = view.querySelector('#compare');
+  const range = view.querySelector('#compare-range');
+  if (cmp && range) range.oninput = () => cmp.style.setProperty('--pos', `${range.value}%`);
+  view.querySelectorAll('#frise .frise-item').forEach((b) => {
+    b.onclick = () => { ps.before = b.dataset.ph; renderPlant(p.id); };
+  });
+  const play = view.querySelector('#play-photos');
+  if (play) play.onclick = () => playPhotos(photoHistory(p));
+  const frise = view.querySelector('#frise');
+  if (frise) frise.scrollLeft = frise.scrollWidth;
 }
 
 // Rythme d'arrosage conseillé en ce moment, et d'où il vient.
@@ -474,6 +590,8 @@ async function renderPlant(id) {
   const late = isThirsty(ws);
   const waterRatio = ws.last ? Math.min(1, Math.max(0.04, ws.days / ws.expected)) : 0;
   const sa = seasonAdvice(p);
+  const ps = photoState[id] || (photoState[id] = { before: null, playing: false });
+  const ref = referencePhoto(p);
   view.innerHTML = `
     <div class="plant-head">
       <div class="thumb art-bg">${p.photo ? `<img src="${blobUrl(p.photo)}" alt="${esc(name)}">` : plantArt(p.id || p.scientificName || '', p.scientificName)}</div>
@@ -528,9 +646,13 @@ async function renderPlant(id) {
         </div>
       </div>` : ''}
 
+    ${photoCardHtml(p, ps)}
+
     <div class="card">
       <h2>Diagnostic</h2>
-      ${luluSays('Un souci ?', 'Montre-moi la plante (ou la partie abîmée) : je regarde son état et je te donne des conseils.', 56)}
+      ${luluSays('Un souci ?', ref
+        ? `Montre-moi la plante : je la compare avec la photo du ${esc(fmtShort(ref.date))} pour te dire si elle va mieux.`
+        : 'Montre-moi la plante (ou la partie abîmée) : je regarde son état et je te donne des conseils.', 56)}
       <p class="muted small">Le journal (arrosages, notes) est pris en compte. Coût : une fraction de centime.</p>
       ${photoPicker('diag-photo', ds.photo || null, 'Nouvelle photo pour le diagnostic')}
       <label for="diag-note">Ce que vous avez remarqué (facultatif)</label>
@@ -567,6 +689,7 @@ async function renderPlant(id) {
     <button class="btn danger" id="delete">Supprimer cette plante</button>`;
 
   const $ = (sel) => view.querySelector(sel);
+  bindPhotoCard(p, ps);
 
   view.querySelectorAll('[data-quick]').forEach((b) => {
     b.onclick = async () => {
@@ -643,7 +766,12 @@ async function renderPlant(id) {
     const blob = await readPhotoInput(e.target).catch(() => null);
     if (blob) {
       const fresh = await loadPlant(id);
+      // L'ancienne photo principale reste dans le suivi photo.
+      if (fresh.photo) {
+        addEvent(fresh, { type: 'photo', date: (fresh.photoAt || fresh.createdAt || todayIso()).slice(0, 10), text: 'Ancienne photo principale', photo: fresh.photo });
+      }
       fresh.photo = blob;
+      fresh.photoAt = todayIso();
       await savePlant(fresh);
       renderPlant(id);
     }
@@ -687,6 +815,7 @@ async function runDiagnosis(plant, ds) {
       history: historySummary(plant),
       userNote: ds.note.trim(),
       apiKey: getSettings().anthropicKey,
+      previous: referencePhoto(plant),
     });
     const fresh = (await loadPlant(plant.id)) || plant;
     fresh.diagnoses = [
