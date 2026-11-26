@@ -20,6 +20,13 @@ const PATHS = {
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   image: '<rect x="3.5" y="5" width="17" height="14" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 16l-5-5-8 8"/>',
   trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
+  // Module Pièces
+  home: '<path d="M3.5 11.5L12 4.5l8.5 7"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
+  window: '<rect x="4.5" y="3.5" width="15" height="17" rx="2"/><path d="M12 3.5v17M4.5 12h15"/>',
+  door: '<path d="M5.5 20.5V3.5h13v17"/><path d="M3.5 20.5h17"/><path d="M12 3.5v17"/><path d="M10 12.5v1M14 12.5v1"/>',
+  shape: '<path d="M4.5 5h9v6h6v8.5h-15z"/><circle cx="4.5" cy="5" r="1.4"/><circle cx="13.5" cy="11" r="1.4"/><circle cx="19.5" cy="19.5" r="1.4"/>',
+  compass: '<circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2l-1.6 4-4 1.6 1.6-4z"/>',
+  star: '<path d="M12 3.8l2.4 5 5.4.7-4 3.7 1 5.4-4.8-2.6-4.8 2.6 1-5.4-4-3.7 5.4-.7z"/>',
 };
 
 // Couleur par type d'entrée du journal (utilisée par les pastilles).

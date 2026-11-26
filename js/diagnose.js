@@ -9,7 +9,7 @@ export const DIAG_MODEL = 'claude-haiku-5-5';
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['etat_general', 'resume', 'problemes', 'conseils', 'arrosage', 'lumiere', 'a_surveiller'],
+  required: ['etat_general', 'resume', 'problemes', 'conseils', 'arrosage', 'lumiere', 'besoin_lumiere', 'a_surveiller'],
   properties: {
     etat_general: { type: 'string', enum: ['bon', 'moyen', 'mauvais', 'indetermine'] },
     resume: { type: 'string', description: 'Une ou deux phrases sur l’état visible de la plante.' },
@@ -30,6 +30,11 @@ const SCHEMA = {
     conseils: { type: 'array', items: { type: 'string' }, description: 'Actions concrètes, par ordre de priorité.' },
     arrosage: { type: 'string', description: 'Recommandation d’arrosage adaptée.' },
     lumiere: { type: 'string', description: 'Recommandation d’exposition.' },
+    besoin_lumiere: {
+      type: 'string',
+      enum: ['plus', 'moins', 'ok', 'indetermine'],
+      description: 'La plante a-t-elle besoin de plus de lumière, de moins de lumière (ou de soleil direct), ou est-elle bien exposée ? Sert à lui suggérer une meilleure place dans la pièce.',
+    },
     a_surveiller: { type: 'string', description: 'Ce qu’il faut observer dans les prochains jours.' },
   },
 };

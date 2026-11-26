@@ -1,0 +1,354 @@
+// Modèle de lumière d'une pièce et besoins en lumière des plantes.
+// Tout est calculé sur l'appareil, sans appel réseau.
+//
+// Coordonnées du plan : mètres, x vers la droite, y vers le bas (comme le SVG).
+// room.upBearing : direction (boussole, en degrés) vers laquelle regarde le haut du plan
+// (0 = nord, 90 = est, 180 = sud, 270 = ouest).
+
+// --- Géométrie -------------------------------------------------------------
+
+export function edges(points) {
+  return points.map((p, i) => [p, points[(i + 1) % points.length]]);
+}
+
+export function pointInPolygon([x, y], points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+export function distToSegment([px, py], [ax, ay], [bx, by]) {
+  const dx = bx - ax; const dy = by - ay;
+  const l2 = dx * dx + dy * dy || 1e-9;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+  return { d: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)), t };
+}
+
+export function distToWalls(p, points) {
+  return Math.min(...edges(points).map(([a, b]) => distToSegment(p, a, b).d));
+}
+
+// Point du mur le plus proche : { wall, t, d }.
+export function nearestWall(p, points) {
+  let best = { wall: 0, t: 0, d: Infinity };
+  edges(points).forEach(([a, b], i) => {
+    const r = distToSegment(p, a, b);
+    if (r.d < best.d) best = { wall: i, t: r.t, d: r.d };
+  });
+  return best;
+}
+
+function segmentsCross(p1, p2, p3, p4) {
+  const d = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const d1 = d(p3, p4, p1); const d2 = d(p3, p4, p2);
+  const d3 = d(p1, p2, p3); const d4 = d(p1, p2, p4);
+  return ((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9))
+    && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9));
+}
+
+export function wallLength(points, i) {
+  const [a, b] = edges(points)[i];
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+// Normale du mur i tournée vers l'extérieur de la pièce.
+export function outwardNormal(points, i) {
+  const [a, b] = edges(points)[i];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  let n = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+  const mid = [(a[0] + b[0]) / 2 + n[0] * 0.02, (a[1] + b[1]) / 2 + n[1] * 0.02];
+  if (pointInPolygon(mid, points)) n = [-n[0], -n[1]];
+  return n;
+}
+
+// Extrémités d'une fenêtre sur son mur.
+export function windowEnds(room, w) {
+  const [a, b] = edges(room.points)[w.wall];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  const c = Math.max(w.width / 2, Math.min(len - w.width / 2, w.at));
+  return [
+    [a[0] + u[0] * (c - w.width / 2), a[1] + u[1] * (c - w.width / 2)],
+    [a[0] + u[0] * (c + w.width / 2), a[1] + u[1] * (c + w.width / 2)],
+  ];
+}
+
+// --- Orientation -----------------------------------------------------------
+
+const DIRS = ['Nord', 'Nord-Est', 'Est', 'Sud-Est', 'Sud', 'Sud-Ouest', 'Ouest', 'Nord-Ouest'];
+const DIRS_SHORT = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+
+export const COMPASS = DIRS_SHORT.map((s, i) => ({ short: s, label: DIRS[i], deg: i * 45 }));
+
+export function bearingLabel(deg, short = false) {
+  const i = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
+  return short ? DIRS_SHORT[i] : DIRS[i];
+}
+
+// Cap (boussole) d'une direction du plan.
+export function bearingOf([vx, vy], upBearing) {
+  const a = (Math.atan2(vx, -vy) * 180) / Math.PI;
+  return (((upBearing + a) % 360) + 360) % 360;
+}
+
+// Direction du plan qui pointe vers un cap donné (pour dessiner la boussole).
+export function planVector(bearing, upBearing) {
+  const a = ((bearing - upBearing) * Math.PI) / 180;
+  return [Math.sin(a), -Math.cos(a)];
+}
+
+export function windowBearing(room, w) {
+  return bearingOf(outwardNormal(room.points, w.wall), room.upBearing || 0);
+}
+
+// Apport de lumière selon l'exposition (hémisphère nord) : 1 au sud, 0,3 au nord.
+export function exposureFactor(bearing) {
+  const r = (bearing * Math.PI) / 180;
+  return 0.3 + 0.7 * ((1 - Math.cos(r)) / 2) ** 0.8;
+}
+
+// Le soleil entre directement par les fenêtres orientées de l'est à l'ouest (par le sud).
+export function getsDirectSun(bearing) {
+  return bearing > 65 && bearing < 295;
+}
+
+export const WINDOW_TYPES = {
+  window: { label: 'Fenêtre', width: 1.0, gain: 1 },
+  french: { label: 'Porte-fenêtre', width: 1.6, gain: 1.35 },
+};
+
+// --- Lumière en un point ---------------------------------------------------
+
+// Renvoie { level (≈ 0 à 1+), direct (bool), main (fenêtre principale) }.
+export function lightAt(room, p) {
+  let level = 0; let direct = false; let main = null; let mainV = 0;
+  const walls = edges(room.points);
+  for (const w of room.windows || []) {
+    const [A, B] = windowEnds(room, w);
+    const nOut = outwardNormal(room.points, w.wall);
+    const nIn = [-nOut[0], -nOut[1]];
+    const bearing = bearingOf(nOut, room.upBearing || 0);
+    const gain = exposureFactor(bearing) * (WINDOW_TYPES[w.type]?.gain || 1);
+    const N = 5;
+    let v = 0; let bestCos = 0; let minR = Infinity;
+    for (let k = 0; k < N; k++) {
+      const t = (k + 0.5) / N;
+      const S = [A[0] + (B[0] - A[0]) * t + nIn[0] * 0.01, A[1] + (B[1] - A[1]) * t + nIn[1] * 0.01];
+      const d = [p[0] - S[0], p[1] - S[1]];
+      const r = Math.hypot(d[0], d[1]) || 0.01;
+      const cos = (d[0] * nIn[0] + d[1] * nIn[1]) / r;
+      if (cos <= 0) continue;
+      // Un mur entre la fenêtre et le point (pièce en L) bloque la lumière.
+      if (walls.some(([a, b], i) => i !== w.wall && segmentsCross(S, p, a, b))) continue;
+      v += (cos * (w.width / N)) / (1 + (r / 1.2) ** 2);
+      if (cos > bestCos) bestCos = cos;
+      if (r < minR) minR = r;
+    }
+    v *= gain;
+    level += v;
+    if (v > mainV) { mainV = v; main = { window: w, bearing, distance: minR }; }
+    if (getsDirectSun(bearing) && minR < 1.6 && bestCos > 0.55) direct = true;
+  }
+  return { level, direct, main };
+}
+
+export const LIGHT_LEVELS = [
+  { key: 'ombre', min: 0, label: 'Ombre', short: 'Ombre' },
+  { key: 'mi-ombre', min: 0.12, label: 'Mi-ombre', short: 'Mi-ombre' },
+  { key: 'vive', min: 0.3, label: 'Lumière vive indirecte', short: 'Lumineux' },
+  { key: 'soleil', min: 0.6, label: 'Très lumineux', short: 'Très lumineux' },
+];
+
+export function levelOf(value) {
+  let out = LIGHT_LEVELS[0];
+  for (const l of LIGHT_LEVELS) if (value >= l.min) out = l;
+  return out;
+}
+
+export function describeSpot(room, p) {
+  const { level, direct, main } = lightAt(room, p);
+  const lv = levelOf(level);
+  let where = 'loin des fenêtres';
+  if (main) {
+    const d = main.distance;
+    where = `à ${d < 1 ? `${Math.round(d * 100)} cm` : `${d.toFixed(1).replace('.', ',')} m`} d'une ${WINDOW_TYPES[main.window.type]?.label.toLowerCase() || 'fenêtre'} ${bearingLabel(main.bearing).toLowerCase()}`;
+  }
+  return { level, direct, lv, where };
+}
+
+// --- Besoins des plantes ---------------------------------------------------
+
+// Cible de lumière (même échelle que lightAt) et tolérance au soleil direct.
+export const NEEDS = {
+  soleil: { label: 'Plein soleil', target: 0.8, direct: 'aime' },
+  vive: { label: 'Lumière vive, sans soleil brûlant', target: 0.45, direct: 'matin' },
+  'mi-ombre': { label: 'Mi-ombre', target: 0.22, direct: 'non' },
+  ombre: { label: 'Supporte l\'ombre', target: 0.13, direct: 'non' },
+};
+
+const GENUS_NEEDS = {
+  soleil: [
+    'aloe', 'echeveria', 'crassula', 'sedum', 'kalanchoe', 'opuntia', 'mammillaria', 'echinocactus', 'echinopsis',
+    'cereus', 'euphorbia', 'agave', 'citrus', 'olea', 'lavandula', 'rosmarinus', 'salvia', 'pelargonium', 'hibiscus',
+    'bougainvillea', 'jasminum', 'strelitzia', 'yucca', 'beaucarnea', 'cycas', 'portulacaria', 'ocimum', 'thymus',
+    'capsicum', 'solanum', 'phoenix', 'graptopetalum', 'pachyphytum', 'sempervivum', 'gasteria', 'lithops',
+    'adenium', 'pachypodium', 'nerium', 'punica', 'ficus carica', 'lantana', 'mandevilla', 'gardenia', 'cuphea',
+  ],
+  vive: [
+    'ficus', 'monstera', 'pilea', 'hoya', 'haworthia', 'haworthiopsis', 'schefflera', 'heptapleurum', 'dracaena',
+    'alocasia', 'anthurium', 'begonia', 'peperomia', 'dypsis', 'howea', 'musa', 'codiaeum', 'coffea',
+    'phalaenopsis', 'orchis', 'dendrobium', 'oncidium', 'cattleya', 'tradescantia', 'ceropegia', 'senecio',
+    'curio', 'chlorophytum', 'saintpaulia', 'streptocarpus', 'guzmania', 'vriesea', 'aechmea', 'tillandsia',
+    'schlumbergera', 'oxalis', 'pachira', 'ravenea', 'livistona', 'platycerium', 'polyscias', 'cyperus',
+    'philodendron', 'rhaphidophora', 'scindapsus', 'caladium', 'hypoestes', 'cissus', 'ctenanthe', 'radermachera',
+    'rhapis', 'washingtonia', 'clivia', 'hippeastrum', 'euphorbia pulcherrima', 'jatropha', 'medinilla',
+  ],
+  'mi-ombre': [
+    'epipremnum', 'syngonium', 'calathea', 'goeppertia', 'maranta', 'stromanthe', 'nephrolepis', 'asplenium',
+    'adiantum', 'davallia', 'pteris', 'spathiphyllum', 'fittonia', 'dieffenbachia', 'rhipsalis', 'hedera',
+    'fatsia', 'soleirolia', 'chamaedorea', 'sansevieria', 'dracaena trifasciata', 'aeschynanthus', 'columnea',
+    'microsorum', 'phlebodium', 'nematanthus', 'pellaea', 'selaginella', 'helxine', 'ardisia',
+  ],
+  ombre: ['zamioculcas', 'aspidistra', 'aglaonema', 'rohdea', 'ophiopogon'],
+};
+
+// Renvoie { key, label, target, direct, source } pour une plante.
+export function plantNeed(plant) {
+  if (plant?.lightNeed && NEEDS[plant.lightNeed]) {
+    return { key: plant.lightNeed, ...NEEDS[plant.lightNeed], source: 'choisi par vous' };
+  }
+  const sci = (plant?.scientificName || '').toLowerCase().trim();
+  const fam = (plant?.family || '').toLowerCase();
+  if (sci) {
+    const two = sci.split(/\s+/).slice(0, 2).join(' ');
+    const genus = sci.split(/\s+/)[0];
+    for (const [key, list] of Object.entries(GENUS_NEEDS)) {
+      if (list.includes(two)) return { key, ...NEEDS[key], source: `d'après l'espèce (${genus})` };
+    }
+    for (const [key, list] of Object.entries(GENUS_NEEDS)) {
+      if (list.includes(genus)) return { key, ...NEEDS[key], source: `d'après l'espèce (${genus})` };
+    }
+  }
+  if (fam === 'cactaceae') return { key: 'soleil', ...NEEDS.soleil, source: 'd\'après la famille (cactus)' };
+  if (fam === 'crassulaceae') return { key: 'soleil', ...NEEDS.soleil, source: 'd\'après la famille (plante grasse)' };
+  if (fam === 'marantaceae') return { key: 'mi-ombre', ...NEEDS['mi-ombre'], source: 'd\'après la famille' };
+  if (fam === 'araceae') return { key: 'vive', ...NEEDS.vive, source: 'd\'après la famille' };
+  if (/polypodiaceae|pteridaceae|aspleniaceae|nephrolepidaceae|dryopteridaceae/.test(fam)) {
+    return { key: 'mi-ombre', ...NEEDS['mi-ombre'], source: 'd\'après la famille (fougère)' };
+  }
+  return { key: 'vive', ...NEEDS.vive, source: 'valeur par défaut, espèce inconnue', unknown: true };
+}
+
+// Ce que dit le dernier diagnostic sur la lumière : 'plus', 'moins' ou null.
+// addressed = la plante a été déplacée depuis ce diagnostic (on garde alors
+// sa nouvelle place comme référence au lieu de la repousser encore).
+export function diagnosisLight(plant, placement) {
+  const d = plant?.diagnoses?.[0];
+  if (!d?.result) return null;
+  const addressed = Boolean(placement?.movedAt && placement.movedAt > d.date);
+  const ageDays = (Date.now() - new Date(d.date).getTime()) / 86400000;
+  if (ageDays > 120) return null;
+  const r = d.result;
+  let dir = null;
+  if (r.besoin_lumiere === 'plus' || r.besoin_lumiere === 'moins') dir = r.besoin_lumiere;
+  else if (!r.besoin_lumiere) {
+    const txt = `${r.lumiere || ''} ${(r.problemes || []).map((p) => `${p.nom} ${p.cause_probable}`).join(' ')}`.toLowerCase();
+    if (/(manque de (lumi|clart)|plus de lumi|davantage de lumi|plus lumineu|lumi[eè]re insuffisante|étiol|etiol|rapproch)/.test(txt)) dir = 'plus';
+    else if (/(trop de (soleil|lumi)|exc[eè]s de (soleil|lumi)|br[uû]l|coup de soleil|[ée]loign|à l'abri du soleil|moins de (soleil|lumi))/.test(txt)) dir = 'moins';
+  }
+  if (!dir) return null;
+  return { dir, date: d.date, text: r.lumiere || '', addressed };
+}
+
+// --- Emplacement idéal -----------------------------------------------------
+
+const POT_MARGIN = 0.25; // distance mini au mur (rayon d'un pot)
+const PLANT_GAP = 0.5; // distance mini entre deux plantes
+
+// Note un point pour une plante : plus c'est haut, mieux c'est.
+function scoreFor(need, target, info) {
+  let s = -Math.abs(Math.log((info.level + 0.02) / (target + 0.02)));
+  if (info.direct && need.direct === 'non') s -= 0.6;
+  if (info.direct && need.direct === 'matin') s -= 0.15;
+  if (!info.direct && need.direct === 'aime') s -= 0.2;
+  return s;
+}
+
+// Lumière cible : besoin de l'espèce, corrigé par le dernier diagnostic.
+export function targetFor(room, plant, current, placement) {
+  const need = plantNeed(plant);
+  const diag = diagnosisLight(plant, placement);
+  let target = need.target;
+  let why = `Besoin : ${need.label.toLowerCase()}`;
+  if (diag?.addressed && current) {
+    target = diag.dir === 'plus' ? Math.max(need.target, current.level) : Math.min(need.target, current.level);
+  } else if (diag) {
+    const base = current ? Math.max(current.level, 0.05) : need.target;
+    target = diag.dir === 'plus' ? Math.max(base * 1.7, base + 0.12) : Math.min(base * 0.55, base - 0.08);
+    target = Math.max(0.06, Math.min(1.2, target));
+    why = diag.dir === 'plus'
+      ? 'Le dernier diagnostic conseille plus de lumière'
+      : 'Le dernier diagnostic conseille moins de lumière ou de soleil direct';
+  }
+  return { need, diag, target, why };
+}
+
+// Cherche le meilleur endroit libre de la pièce pour une plante.
+export function suggestSpot(room, plant, { ignoreId } = {}) {
+  const placed = (room.plants || []).filter((pl) => pl.plantId !== ignoreId);
+  const mine = (room.plants || []).find((pl) => pl.plantId === (ignoreId || plant.id));
+  const current = mine ? lightAt(room, [mine.x, mine.y]) : null;
+  const { need, diag, target, why } = targetFor(room, plant, current, mine);
+  const xs = room.points.map((p) => p[0]); const ys = room.points.map((p) => p[1]);
+  const step = 0.1;
+  let best = null;
+  for (let x = Math.min(...xs) + POT_MARGIN; x <= Math.max(...xs) - POT_MARGIN + 1e-6; x += step) {
+    for (let y = Math.min(...ys) + POT_MARGIN; y <= Math.max(...ys) - POT_MARGIN + 1e-6; y += step) {
+      const p = [x, y];
+      if (!pointInPolygon(p, room.points) || distToWalls(p, room.points) < POT_MARGIN - 1e-6) continue;
+      if (placed.some((pl) => Math.hypot(pl.x - x, pl.y - y) < PLANT_GAP)) continue;
+      if (blocksFrenchWindow(room, p)) continue;
+      const info = lightAt(room, p);
+      const s = scoreFor(need, target, info) - (mine ? Math.hypot(mine.x - x, mine.y - y) * 0.01 : 0);
+      if (!best || s > best.score) best = { x: round(x), y: round(y), score: s, info };
+    }
+  }
+  if (!best) return null;
+  const currentScore = current ? scoreFor(need, target, current) : null;
+  return {
+    ...best, need, diag, target, why, current,
+    gain: currentScore == null ? null : best.score - currentScore,
+    spot: describeSpot(room, [best.x, best.y]),
+  };
+}
+
+// Évalue la place actuelle : 'good' | 'warn' | 'bad'.
+export function fitAt(room, plant, placement) {
+  const info = lightAt(room, [placement.x, placement.y]);
+  const need = plantNeed(plant);
+  const diag = diagnosisLight(plant, placement);
+  if (diag && !diag.addressed) return { status: 'warn', info, need, diag };
+  const target = diag ? (diag.dir === 'plus' ? Math.max(need.target, info.level) : Math.min(need.target, info.level)) : need.target;
+  const s = scoreFor(need, target, info);
+  return { status: s > -0.45 ? 'good' : s > -0.95 ? 'warn' : 'bad', info, need, diag };
+}
+
+// Garde un passage libre devant les portes-fenêtres.
+function blocksFrenchWindow(room, p) {
+  return (room.windows || []).some((w) => {
+    if (w.type !== 'french') return false;
+    const [A, B] = windowEnds(room, w);
+    const mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+    const n = outwardNormal(room.points, w.wall);
+    const d = [p[0] - mid[0], p[1] - mid[1]];
+    const depth = -(d[0] * n[0] + d[1] * n[1]);
+    const side = Math.abs(d[0] * n[1] - d[1] * n[0]);
+    return depth >= 0 && depth < 0.9 && side < Math.min(0.45, w.width / 3);
+  });
+}
+
+const round = (v) => Math.round(v * 100) / 100;

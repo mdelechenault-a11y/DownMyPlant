@@ -17,7 +17,13 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
   problèmes repérés (manque d'eau, excès d'eau, lumière, parasites, jaunissement…),
   actions conseillées, arrosage et exposition. Utilise le petit modèle vision
   `claude-haiku-5-5` d'Anthropic. Historique des diagnostics conservé par plante.
-- **Sauvegarde** : export / import du parc (photos comprises) en fichier JSON.
+- **Pièces** : dessinez les pièces de la maison (rectangle, en L ou à main levée sur un
+  quadrillage), indiquez leur orientation (boutons N/NE/E… ou boussole du téléphone),
+  placez fenêtres et portes-fenêtres sur les murs. Glissez vos plantes au doigt depuis
+  le bandeau sous le plan, puis déplacez leurs bulles. L'app calcule une carte de lumière
+  (exposition et distance aux ouvertures) et propose pour chaque plante un **emplacement
+  idéal** ⭐ selon les besoins de l'espèce et le dernier diagnostic (plus ou moins de lumière).
+- **Sauvegarde** : export / import du parc (photos comprises) en fichier JSON. Les pièces sont incluses.
 - Fonctionne hors connexion pour consulter le parc (service worker).
 
 ## Coûts
@@ -95,6 +101,9 @@ js/diagnose.js          diagnostic via Claude (prompt + schéma JSON de réponse
 js/image.js             compression des photos
 js/settings.js          clés API locales
 js/ui.js                icônes SVG, illustrations de plantes et Lulu la coccinelle
+js/rooms.js             module Pièces (plan, fenêtres, glisser-déposer des plantes)
+js/light.js             calcul de la lumière et besoins des plantes par genre
+rooms.css               styles du module Pièces
 fonts/                  polices Fraunces et Nunito Sans (licence SIL OFL), servies localement
 vendor/anthropic-sdk.js SDK officiel @anthropic-ai/sdk 1.7.0, regroupé en un fichier ESM
 icons/                  icônes de l'app
