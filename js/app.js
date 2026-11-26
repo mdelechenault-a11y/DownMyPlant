@@ -3,6 +3,7 @@ import { getSettings, saveSettings } from './settings.js';
 import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
 import { diagnosePlant } from './diagnose.js';
+import { APP_VERSION } from './version.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
 } from './journal.js';
@@ -628,6 +629,18 @@ function renderSettings() {
         <input class="visually-hidden" type="file" id="import" accept="application/json,.json">
       </div>
       <p class="muted small" id="storage" style="margin-top:8px"></p>
+    </div>
+
+    <div class="card">
+      <h2>Application</h2>
+      <dl class="kv">
+        <dt>Version</dt><dd><strong>${esc(APP_VERSION)}</strong></dd>
+        <dt>Hors connexion</dt><dd id="sw-version">…</dd>
+        <dt>En ligne</dt><dd id="online-version">…</dd>
+      </dl>
+      <div class="btn-row"><button class="btn secondary" id="check-update">Rechercher une mise à jour</button></div>
+      <div class="btn-row"><button class="btn secondary" id="force-update">Forcer la mise à jour</button></div>
+      <p class="muted small" style="margin-top:8px">« Forcer » vide le cache de l'app et la recharge. Vos plantes et vos clés ne sont pas effacées.</p>
     </div>`;
 
   const saveKeys = () => saveSettings({
@@ -653,6 +666,9 @@ function renderSettings() {
     btn.disabled = false;
   };
   view.querySelector('#export').onclick = exportBackup;
+  view.querySelector('#check-update').onclick = checkForUpdate;
+  view.querySelector('#force-update').onclick = forceUpdate;
+  showVersions();
   view.querySelector('#import').onchange = (e) => importBackup(e.target);
   showStorage();
 }
@@ -724,11 +740,85 @@ async function importBackup(input) {
   }
 }
 
+// --- Version et mises à jour ----------------------------------------------
+
+async function swVersion() {
+  const ctrl = navigator.serviceWorker?.controller;
+  if (!ctrl) return null;
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 1500);
+    ch.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data); };
+    ctrl.postMessage('get-version', [ch.port2]);
+  });
+}
+
+async function onlineVersion() {
+  try {
+    const res = await fetch(`js/version.js?t=${Date.now()}`, { cache: 'no-store' });
+    const m = (await res.text()).match(/APP_VERSION\s*=\s*'([^']+)'/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+async function showVersions() {
+  const [sw, online] = await Promise.all([swVersion(), onlineVersion()]);
+  const swEl = view.querySelector('#sw-version');
+  const onEl = view.querySelector('#online-version');
+  if (swEl) swEl.textContent = sw || 'non installé';
+  if (onEl) {
+    onEl.innerHTML = online
+      ? `${esc(online)}${online !== APP_VERSION ? ' · <span class="late">mise à jour disponible</span>' : ' · à jour ✅'}`
+      : 'indisponible (hors connexion ?)';
+  }
+  return online;
+}
+
+async function checkForUpdate() {
+  toast('Recherche…');
+  const reg = await navigator.serviceWorker?.getRegistration();
+  if (reg) await reg.update().catch(() => {});
+  const online = await showVersions();
+  if (online && online !== APP_VERSION) {
+    toast(`Version ${online} trouvée, rechargement…`);
+    setTimeout(() => location.reload(), 800);
+  } else if (online) {
+    toast('Vous avez la dernière version');
+  }
+}
+
+async function forceUpdate() {
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations()) || [];
+    await Promise.all(regs.map((r) => r.unregister()));
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch { /* ignoré */ }
+  location.replace(`${location.pathname}?v=${Date.now()}${location.hash}`);
+}
+
 // --- Démarrage -------------------------------------------------------------
 
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  // Quand une nouvelle version prend la main, on recharge une fois pour l'afficher.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW', err));
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        // Vérifie les mises à jour à chaque retour dans l'app.
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') reg.update().catch(() => {});
+        });
+      })
+      .catch((err) => console.warn('SW', err));
   });
 }
 

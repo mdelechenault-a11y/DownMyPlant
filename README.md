@@ -103,8 +103,14 @@ Pour tester en local : `python3 -m http.server 8000` puis <http://localhost:8000
 
 ### Publier une mise à jour
 
-Modifiez `VERSION` dans `sw.js` (ex. `dmp-v2`) pour que les téléphones récupèrent
-les nouveaux fichiers. Sur iPhone, fermez puis rouvrez l'app (parfois deux fois).
+Augmentez le numéro de version **au même endroit dans deux fichiers** :
+`APP_VERSION` dans `js/version.js` et `VERSION` dans `sw.js` (ex. `1.3.0` → `1.4.0`).
+
+Sur l'iPhone, l'app vérifie les mises à jour à chaque ouverture et se recharge
+d'elle-même quand une nouvelle version est installée. **Réglages → Application**
+affiche la version installée et la version en ligne, avec deux boutons :
+« Rechercher une mise à jour » et « Forcer la mise à jour » (vide le cache de l'app
+sans toucher aux plantes ni aux clés).
 
 ### Régénérer le SDK embarqué
 
