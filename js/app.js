@@ -2,7 +2,7 @@ import { listPlants, getPlant, savePlant, deletePlant, clearPlants, newId, reque
 import { getSettings, saveSettings } from './settings.js';
 import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
-import { diagnosePlant } from './diagnose.js';
+import { diagnosePlant, testAnthropicKey } from './diagnose.js';
 import { APP_VERSION } from './version.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
@@ -616,6 +616,9 @@ function renderSettings() {
         et ajoutez quelques euros de crédit : un diagnostic coûte moins d'un centime.</p>
       <label for="an">Clé API Anthropic</label>
       <input type="password" id="an" value="${esc(s.anthropicKey)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="muted small" id="an-info" style="margin-top:6px">${keyInfo(s.anthropicKey, 7)}</p>
+      <div class="btn-row"><button class="btn secondary" id="an-test">Tester la clé Anthropic</button></div>
+      <div id="an-result" style="margin-top:8px"></div>
     </div>
     <button class="btn" id="save">Enregistrer les clés</button>
     <p class="muted small" style="margin-top:8px">Les clés restent sur cet appareil et ne sont envoyées qu'à Pl@ntNet et Anthropic.</p>
@@ -650,10 +653,24 @@ function renderSettings() {
   view.querySelector('#save').onclick = () => {
     const saved = saveKeys();
     view.querySelector('#pn-info').innerHTML = keyInfo(saved.plantnetKey);
+    view.querySelector('#an-info').innerHTML = keyInfo(saved.anthropicKey, 7);
     toast('Clés enregistrées');
   };
   view.querySelector('#pn').oninput = (e) => {
     view.querySelector('#pn-info').innerHTML = keyInfo(cleanKey(e.target.value));
+  };
+  view.querySelector('#an').oninput = (e) => {
+    view.querySelector('#an-info').innerHTML = keyInfo(cleanKey(e.target.value), 7);
+  };
+  view.querySelector('#an-test').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const out = view.querySelector('#an-result');
+    const saved = saveKeys();
+    btn.disabled = true;
+    out.innerHTML = '<div class="loading"><span class="spinner"></span>Test en cours…</div>';
+    const r = await testAnthropicKey(saved.anthropicKey);
+    out.innerHTML = `<div class="${r.ok ? 'success' : 'error'}">${esc(r.message)}</div>`;
+    btn.disabled = false;
   };
   view.querySelector('#pn-test').onclick = async (e) => {
     const btn = e.currentTarget;
@@ -674,9 +691,9 @@ function renderSettings() {
 }
 
 // Aide à vérifier une clé sans l'afficher en entier.
-function keyInfo(key) {
+function keyInfo(key, head = 4) {
   if (!key) return 'Aucune clé enregistrée.';
-  return `Clé de ${key.length} caractères, commence par <strong>${esc(key.slice(0, 4))}</strong> et finit par <strong>${esc(key.slice(-4))}</strong>.`;
+  return `Clé de ${key.length} caractères, commence par <strong>${esc(key.slice(0, head))}</strong> et finit par <strong>${esc(key.slice(-4))}</strong>.`;
 }
 
 async function showStorage() {
