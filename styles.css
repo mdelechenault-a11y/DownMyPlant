@@ -382,3 +382,15 @@ ul.clean li { margin: 3px 0; }
 .tl-photo { display: block; width: 100%; max-height: 220px; object-fit: cover; border-radius: 14px; margin-top: 6px; }
 details summary { cursor: pointer; color: var(--primary); font-weight: 700; margin-top: 4px; }
 .link-btn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 0 0; cursor: pointer; text-decoration: underline; }
+
+/* --- Saisons ---------------------------------------------------------------- */
+
+.season-card { padding-top: 12px; padding-bottom: 12px; }
+.season-card summary { display: flex; gap: 10px; align-items: center; list-style: none; margin: 0; color: var(--text); }
+.season-card summary::-webkit-details-marker { display: none; }
+.season-card summary > div { flex: 1; min-width: 0; }
+.season-kicker { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.season-title { font-family: var(--font-title); font-style: italic; font-weight: 600; font-size: 17px; }
+.season-more { font-size: 13px; font-weight: 700; color: var(--primary); }
+.season-card[open] .season-more { opacity: .5; }
+.season-card > p { margin: 10px 0 8px; }
