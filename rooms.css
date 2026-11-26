@@ -5,8 +5,10 @@
   --floor: #fdf7ef;
   --wall: #6b5a55;
 }
+/* Thème sombre : choisi dans Réglages, ou automatique (suit l'iPhone). */
+:root[data-theme="dark"] { --sun: #f0c25e; --floor: #2e2725; --wall: #cdbdb5; }
 @media (prefers-color-scheme: dark) {
-  :root { --sun: #f0c25e; --floor: #2e2725; --wall: #cdbdb5; }
+  :root[data-theme="auto"] { --sun: #f0c25e; --floor: #2e2725; --wall: #cdbdb5; }
 }
 
 /* Liste des pièces */

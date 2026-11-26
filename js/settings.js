@@ -5,6 +5,7 @@ const KEY = 'downmyplant.settings';
 const DEFAULTS = {
   plantnetKey: '',
   anthropicKey: '',
+  theme: 'light', // light | dark | auto
 };
 
 export function getSettings() {

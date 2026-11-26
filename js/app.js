@@ -669,10 +669,30 @@ async function runDiagnosis(plant, ds) {
 
 // --- Réglages --------------------------------------------------------------
 
+const THEMES = [['light', 'Clair'], ['dark', 'Sombre'], ['auto', 'Automatique']];
+
+// Applique le thème : clair par défaut, sombre, ou automatique (suit le réglage de l'iPhone).
+function applyTheme(theme) {
+  const t = THEMES.some(([k]) => k === theme) ? theme : 'light';
+  document.documentElement.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1f1a19' : '#fbf6ee');
+}
+applyTheme(getSettings().theme);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(getSettings().theme));
+
 function renderSettings() {
   setHeader('Réglages');
   const s = getSettings();
+  const theme = s.theme || 'light';
   view.innerHTML = `
+    <div class="card">
+      <h2>Apparence</h2>
+      <div class="chips" id="theme">
+        ${THEMES.map(([k, label]) => `<button class="chip ${k === theme ? 'active' : ''}" data-theme="${k}">${label}</button>`).join('')}
+      </div>
+      <p class="muted small" style="margin-top:8px">« Automatique » suit le mode clair ou sombre de l'iPhone.</p>
+    </div>
     <div class="card">
       <h2>Reconnaissance (Pl@ntNet)</h2>
       <p class="muted small">Gratuit, 500 identifications par jour. Créez un compte sur
@@ -758,6 +778,13 @@ function renderSettings() {
     out.innerHTML = `<div class="${r.ok ? 'success' : 'error'}">${esc(r.message)}</div>`;
     btn.disabled = false;
   };
+  view.querySelectorAll('#theme .chip').forEach((c) => {
+    c.onclick = () => {
+      saveSettings({ theme: c.dataset.theme });
+      applyTheme(c.dataset.theme);
+      view.querySelectorAll('#theme .chip').forEach((x) => x.classList.toggle('active', x === c));
+    };
+  });
   view.querySelector('#export').onclick = exportBackup;
   view.querySelector('#check-update').onclick = checkForUpdate;
   view.querySelector('#force-update').onclick = forceUpdate;
