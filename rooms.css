@@ -183,3 +183,23 @@ input[type=number] {
 .advice .btn-row { margin-top: 10px; }
 
 input[type=range] { width: 100%; accent-color: var(--primary); }
+
+/* --- Soleil réel --------------------------------------------------------------- */
+
+.sun-patch rect { fill: var(--sun); fill-opacity: .85; }
+.sun-path { fill: none; stroke: var(--sun); stroke-width: 0.035; stroke-dasharray: 0.06 0.08; stroke-linecap: round; }
+.sun-mark.small circle { stroke-width: 0.03; }
+.sun-mark.small text { font-weight: 700; }
+.sun-now circle { fill: var(--sun); stroke: var(--surface); stroke-width: 0.05; }
+.sun-now path { stroke: var(--warn); stroke-width: 2; stroke-linecap: round; fill: none; }
+.sun-card .row h2 { margin: 0; }
+.sun-card .row .muted { display: inline-flex; align-items: center; gap: 3px; }
+.sun-card #sun-day { margin-top: 10px; }
+.sun-time-label { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+#sun-time-val { font-family: var(--font-title); font-style: italic; font-size: 22px; color: var(--text); }
+.notice-inline { background: var(--warn-soft); border-radius: 12px; padding: 8px 10px; margin: 8px 0 0; }
+.weather-row { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.wday { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 8px; align-items: center; background: var(--bg); border-radius: 14px; padding: 8px 12px; font-size: 13.5px; }
+.wday span:not(.muted) { white-space: nowrap;
+  display: inline-flex; gap: 4px; align-items: center; font-weight: 700; }
+.warn-text { color: var(--warn); font-weight: 700; margin-top: 8px; }

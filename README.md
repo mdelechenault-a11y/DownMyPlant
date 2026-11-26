@@ -31,6 +31,12 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
   le bandeau sous le plan, puis déplacez leurs bulles. L'app calcule une carte de lumière
   (exposition et distance aux ouvertures) et propose pour chaque plante un **emplacement
   idéal** ⭐ selon les besoins de l'espèce et le dernier diagnostic (plus ou moins de lumière).
+- **Vrai soleil** : la carte de lumière suit la course réelle du soleil pour votre ville
+  (Réglages → Ma ville, ou position du téléphone), le jour et la saison : heures de soleil par
+  fenêtre, tache de soleil qui entre dans la pièce (selon la hauteur du soleil, l'allège et le haut
+  des fenêtres). L'onglet Soleil d'une pièce montre la tache heure par heure, aujourd'hui, le 21 juin
+  ou le 21 décembre, et la météo des 3 prochains jours ([Open-Meteo](https://open-meteo.com/),
+  gratuit et sans clé). Calcul astronomique fait sur l'appareil.
 - **Sauvegarde** : export / import du parc (photos comprises) en fichier JSON. Les pièces sont incluses.
 - Fonctionne hors connexion pour consulter le parc (service worker).
 

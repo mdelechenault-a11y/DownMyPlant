@@ -7,6 +7,8 @@ import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
 import { diagnosePlant, testAnthropicKey } from './diagnose.js';
 import { APP_VERSION } from './version.js';
+import { setSunDay } from './light.js';
+import { getPlace, setPlace, searchCity, locateMe } from './sun.js';
 import { seasonAdvice, seasonOf, SEASONS, fertilizeOk, seasonEnabled } from './season.js';
 import { icon, iconBadge, plantArt, lulu, luluSays, TYPE_COLORS } from './ui.js';
 import {
@@ -128,6 +130,7 @@ async function render() {
   const hash = location.hash || '#/plants';
   const [, route, param] = hash.split('/');
   window.scrollTo(0, 0);
+  setSunDay(null); // la vue Soleil peut avoir choisi un autre jour
   try {
     switch (route) {
       case 'identify': setTab('identify'); return renderIdentify();
@@ -860,6 +863,17 @@ function renderSettings() {
       <p class="muted small" style="margin-top:8px">« Automatique » suit le mode clair ou sombre de l'iPhone.</p>
     </div>
     <div class="card">
+      <h2>Ma ville</h2>
+      <p class="muted small">Sert à calculer la vraie course du soleil dans vos pièces (heures de soleil par fenêtre, selon la saison) et à afficher la météo. La recherche passe par Open-Meteo, gratuit et sans compte.</p>
+      <p class="small" id="place-now">${icon('pin', 14)} <strong>${esc(getPlace().name || 'Ma position')}</strong>${getPlace().isDefault ? ' (par défaut)' : ''}</p>
+      <div class="search-row">
+        <input type="text" id="city" placeholder="Ex. : Lyon" autocomplete="off">
+        <button class="btn secondary" id="city-search">${icon('search', 18)}</button>
+      </div>
+      <div class="chips" id="city-results" style="margin-top:8px"></div>
+      <div class="btn-row"><button class="btn secondary" id="locate">${icon('compass', 18)} Utiliser ma position</button></div>
+    </div>
+    <div class="card">
       <h2>Saisons</h2>
       <p class="muted small">Le rythme d'arrosage conseillé et les conseils s'adaptent au mois : arrosages espacés en hiver, plus fréquents en été.</p>
       <div class="chips" id="season-mode">
@@ -964,10 +978,70 @@ function renderSettings() {
       view.querySelectorAll('#theme .chip').forEach((x) => x.classList.toggle('active', x === c));
     };
   });
+  const placeNow = () => {
+    const pl = getPlace();
+    view.querySelector('#place-now').innerHTML = `${icon('pin', 14)} <strong>${esc(pl.name || 'Ma position')}</strong>${pl.isDefault ? ' (par défaut)' : ''}`;
+  };
+  const runSearch = async () => {
+    const q = view.querySelector('#city').value.trim();
+    const out = view.querySelector('#city-results');
+    if (!q) return;
+    out.innerHTML = '<span class="muted small">Recherche…</span>';
+    try {
+      const list = await searchCity(q);
+      if (!list.length) { out.innerHTML = '<span class="muted small">Aucune ville trouvée.</span>'; return; }
+      out.innerHTML = list.map((c, i) => `<button class="chip" data-i="${i}">${esc(c.name)}<span class="muted small">&nbsp;${esc(c.detail)}</span></button>`).join('');
+      out.querySelectorAll('.chip').forEach((b) => {
+        b.onclick = () => { setPlace(list[Number(b.dataset.i)]); out.innerHTML = ''; placeNow(); toast('Ville enregistrée'); };
+      });
+    } catch (err) {
+      out.innerHTML = `<span class="muted small">${esc(err.message || 'Recherche impossible hors connexion.')}</span>`;
+    }
+  };
+  view.querySelector('#city-search').onclick = runSearch;
+  view.querySelector('#city').onkeydown = (e) => { if (e.key === 'Enter') runSearch(); };
+  view.querySelector('#locate').onclick = async () => {
+    try {
+      const pos = await locateMe();
+      setPlace({ ...pos, name: 'Ma position' });
+      placeNow();
+      toast('Position enregistrée');
+    } catch (err) { toast(err.message); }
+  };
   view.querySelectorAll('#season-mode .chip').forEach((c) => {
     c.onclick = () => {
       saveSettings({ seasonMode: c.dataset.v === 'on' });
-      view.querySelectorAll('#season-mode .chip').forEach((x) => x.classList.toggle('active', x === c));
+      const placeNow = () => {
+    const pl = getPlace();
+    view.querySelector('#place-now').innerHTML = `${icon('pin', 14)} <strong>${esc(pl.name || 'Ma position')}</strong>${pl.isDefault ? ' (par défaut)' : ''}`;
+  };
+  const runSearch = async () => {
+    const q = view.querySelector('#city').value.trim();
+    const out = view.querySelector('#city-results');
+    if (!q) return;
+    out.innerHTML = '<span class="muted small">Recherche…</span>';
+    try {
+      const list = await searchCity(q);
+      if (!list.length) { out.innerHTML = '<span class="muted small">Aucune ville trouvée.</span>'; return; }
+      out.innerHTML = list.map((c, i) => `<button class="chip" data-i="${i}">${esc(c.name)}<span class="muted small">&nbsp;${esc(c.detail)}</span></button>`).join('');
+      out.querySelectorAll('.chip').forEach((b) => {
+        b.onclick = () => { setPlace(list[Number(b.dataset.i)]); out.innerHTML = ''; placeNow(); toast('Ville enregistrée'); };
+      });
+    } catch (err) {
+      out.innerHTML = `<span class="muted small">${esc(err.message || 'Recherche impossible hors connexion.')}</span>`;
+    }
+  };
+  view.querySelector('#city-search').onclick = runSearch;
+  view.querySelector('#city').onkeydown = (e) => { if (e.key === 'Enter') runSearch(); };
+  view.querySelector('#locate').onclick = async () => {
+    try {
+      const pos = await locateMe();
+      setPlace({ ...pos, name: 'Ma position' });
+      placeNow();
+      toast('Position enregistrée');
+    } catch (err) { toast(err.message); }
+  };
+  view.querySelectorAll('#season-mode .chip').forEach((x) => x.classList.toggle('active', x === c));
     };
   });
   view.querySelectorAll('#hemisphere .chip').forEach((c) => {
