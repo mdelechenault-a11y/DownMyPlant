@@ -84,7 +84,7 @@ si vous perdez le téléphone.
 
 ```
 index.html              page unique
-styles.css              styles (thème clair / sombre)
+styles.css              charte « Jardin aquarelle » (thème clair / sombre)
 manifest.webmanifest    manifeste PWA (nom, icônes, mode plein écran)
 sw.js                   service worker (cache hors connexion)
 js/app.js               écrans et navigation
@@ -94,6 +94,8 @@ js/plantnet.js          appel Pl@ntNet
 js/diagnose.js          diagnostic via Claude (prompt + schéma JSON de réponse)
 js/image.js             compression des photos
 js/settings.js          clés API locales
+js/ui.js                icônes SVG, illustrations de plantes et Lulu la coccinelle
+fonts/                  polices Fraunces et Nunito Sans (licence SIL OFL), servies localement
 vendor/anthropic-sdk.js SDK officiel @anthropic-ai/sdk 1.7.0, regroupé en un fichier ESM
 icons/                  icônes de l'app
 ```

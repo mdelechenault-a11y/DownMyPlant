@@ -1,6 +1,6 @@
 // Service worker : l'app s'ouvre même hors connexion.
 // À chaque mise en ligne : augmenter VERSION (même valeur que js/version.js).
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const CACHE = `dmp-${VERSION}`;
 const SHELL = [
   './',
@@ -15,6 +15,11 @@ const SHELL = [
   'js/diagnose.js',
   'js/journal.js',
   'js/version.js',
+  'js/ui.js',
+  'fonts/fraunces.woff2',
+  'fonts/fraunces-italic.woff2',
+  'fonts/nunito-sans.woff2',
+  'fonts/nunito-sans-italic.woff2',
   'vendor/anthropic-sdk.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
