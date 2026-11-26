@@ -3,6 +3,9 @@ import { getSettings, saveSettings } from './settings.js';
 import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
 import { identifyPlant, ORGANS } from './plantnet.js';
 import { diagnosePlant } from './diagnose.js';
+import {
+  EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
+} from './journal.js';
 
 const view = document.getElementById('view');
 const titleEl = document.getElementById('page-title');
@@ -15,18 +18,30 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
 function fmtDate(iso) {
   if (!iso) return '';
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso);
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-function daysSince(iso) {
-  if (!iso) return null;
-  const d = new Date(`${iso}T12:00:00`);
-  return Math.round((Date.now() - d.getTime()) / 86400000);
+function agoText(days) {
+  if (days == null) return '';
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return 'hier';
+  return `il y a ${days} j`;
+}
+
+// Met à niveau (et réenregistre) les plantes créées par une version précédente.
+function upgrade(p) {
+  const needsSave = !Array.isArray(p.events) || 'lastWatered' in p || (p.diagnoses || []).some((d) => !d.id);
+  normalizePlant(p);
+  if (needsSave) savePlant(p).catch(() => {});
+  return p;
+}
+
+async function loadPlant(id) {
+  const p = await getPlant(id);
+  return p ? upgrade(p) : null;
 }
 
 let toastTimer;
@@ -108,7 +123,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 
 async function renderPlants() {
   setHeader('Mes plantes');
-  const plants = await listPlants();
+  const plants = (await listPlants()).map(upgrade);
   if (!plants.length) {
     view.innerHTML = `
       <div class="empty">
@@ -126,12 +141,14 @@ async function renderPlants() {
     <div class="plant-grid">
       ${plants.map((p) => {
         const last = p.diagnoses?.[0]?.result?.etat_general;
+        const ws = waterStats(p);
         return `
         <button class="plant-tile" data-id="${esc(p.id)}">
           ${p.photo ? `<img src="${blobUrl(p.photo)}" alt="">` : '<div class="ph">🪴</div>'}
           <div class="meta">
             <div class="name">${esc(p.nickname || p.commonName || p.scientificName || 'Sans nom')}</div>
             <div class="sp">${esc(p.scientificName || '')}</div>
+            <div class="water-line">💧 ${ws.last ? esc(agoText(ws.days)) : 'pas encore noté'}</div>
             ${last ? `<div style="margin-top:4px">${etatBadge(last)}</div>` : ''}
           </div>
         </button>`;
@@ -285,7 +302,7 @@ function renderAdd() {
       notes: d.notes.trim(),
       photo: d.photo || null,
       createdAt: new Date().toISOString(),
-      lastWatered: '',
+      events: [],
       diagnoses: [],
     };
     await savePlant(plant);
@@ -318,16 +335,11 @@ function etatBadge(etat) {
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
-function diagHtml(entry) {
+function diagDetailsHtml(entry) {
   const r = entry.result || {};
   return `
-    <div class="diag-entry">
-      <div class="row">
-        <span class="muted small">${esc(fmtDate(entry.date))}</span>
-        ${etatBadge(r.etat_general)}
-      </div>
       ${entry.photo ? `<img class="hero" style="margin:8px 0;aspect-ratio:16/9" src="${blobUrl(entry.photo)}" alt="Photo du diagnostic">` : ''}
-      <p style="margin-top:6px">${esc(r.resume)}</p>
+      ${entry.note ? `<p class="muted small">Remarque : ${esc(entry.note)}</p>` : ''}
       ${r.problemes?.length ? `
         <h3>Problèmes repérés</h3>
         <ul class="clean">${r.problemes.map((p) => `
@@ -339,17 +351,51 @@ function diagHtml(entry) {
         ${r.arrosage ? `<dt>💧 Arrosage</dt><dd>${esc(r.arrosage)}</dd>` : ''}
         ${r.lumiere ? `<dt>☀️ Lumière</dt><dd>${esc(r.lumiere)}</dd>` : ''}
         ${r.a_surveiller ? `<dt>👀 À surveiller</dt><dd>${esc(r.a_surveiller)}</dd>` : ''}
-      </dl>
-    </div>`;
+      </dl>`;
 }
 
+function timelineItemHtml(item, open) {
+  const del = `<button class="link-btn" data-del="${esc(item.id)}" aria-label="Supprimer cette entrée">Supprimer</button>`;
+  if (item.kind === 'diagnosis') {
+    const r = item.result || {};
+    return `
+      <li class="tl-item">
+        <span class="tl-dot" aria-hidden="true">🩺</span>
+        <div class="tl-body">
+          <div class="row"><strong>Diagnostic</strong><span class="muted small">${esc(fmtDate(item.date))}</span></div>
+          <div style="margin:4px 0">${etatBadge(r.etat_general)}</div>
+          <p class="small">${esc(r.resume)}</p>
+          <details ${open ? 'open' : ''}><summary class="small">Détails et conseils</summary>${diagDetailsHtml(item)}</details>
+          ${del}
+        </div>
+      </li>`;
+  }
+  const t = EVENT_TYPES[item.type] || EVENT_TYPES.note;
+  return `
+    <li class="tl-item">
+      <span class="tl-dot" aria-hidden="true">${t.icon}</span>
+      <div class="tl-body">
+        <div class="row"><strong>${t.label}</strong><span class="muted small">${esc(fmtDate(item.date))}</span></div>
+        ${item.text ? `<p class="small" style="margin-top:4px">${esc(item.text)}</p>` : ''}
+        ${item.photo ? `<img class="tl-photo" src="${blobUrl(item.photo)}" alt="Photo du ${esc(fmtDate(item.date))}">` : ''}
+        ${del}
+      </div>
+    </li>`;
+}
+
+// Brouillon du formulaire « Ajouter au journal », par plante.
+const entryState = {};
+
 async function renderPlant(id) {
-  const p = await getPlant(id);
+  const p = await loadPlant(id);
   if (!p) { go('#/plants'); return; }
   const name = p.nickname || p.commonName || p.scientificName || 'Ma plante';
   setHeader(name, '#/plants');
   const ds = diagState[id] || (diagState[id] = { photo: null, note: '', loading: false, error: '' });
-  const since = daysSince(p.lastWatered);
+  const es = entryState[id] || (entryState[id] = { open: false, type: 'note', date: todayIso(), text: '', photo: null });
+  const ws = waterStats(p);
+  const items = timeline(p);
+  const firstDiag = items.find((i) => i.kind === 'diagnosis');
 
   view.innerHTML = `
     ${p.photo ? `<img class="hero" src="${blobUrl(p.photo)}" alt="${esc(name)}">` : ''}
@@ -359,18 +405,39 @@ async function renderPlant(id) {
       <dl class="kv">
         <dt>Ajoutée le</dt><dd>${esc(fmtDate(p.createdAt))}</dd>
         ${p.location ? `<dt>Emplacement</dt><dd>${esc(p.location)}</dd>` : ''}
-        <dt>Arrosage</dt><dd>${p.lastWatered
-          ? `${esc(fmtDate(p.lastWatered))} (${since === 0 ? "aujourd'hui" : `il y a ${since} j`})`
-          : 'non noté'}</dd>
       </dl>
-      <div class="btn-row">
-        <button class="btn secondary" id="water">💧 Arrosée aujourd'hui</button>
+      <div class="water-box">
+        <div class="water-main">💧 ${ws.last ? `Arrosée <strong>${esc(agoText(ws.days))}</strong>` : 'Aucun arrosage noté'}</div>
+        ${ws.avg ? `<div class="muted small">Rythme moyen : tous les ${ws.avg} jours${ws.days != null && ws.days > ws.avg ? ' · <span class="late">arrosage peut-être dû</span>' : ''}</div>` : ''}
       </div>
+      <div class="quick-row">
+        <button class="quick" data-quick="water"><span>💧</span>Arrosée</button>
+        <button class="quick" data-quick="fertilize"><span>🌱</span>Engrais</button>
+        <button class="quick" data-quick="repot"><span>🪴</span>Rempotée</button>
+        <button class="quick" id="open-entry"><span>📝</span>Note / photo</button>
+      </div>
+      ${es.open ? `
+      <div class="entry-form">
+        <label>Type</label>
+        <div class="chips" id="entry-types">
+          ${Object.entries(EVENT_TYPES).map(([k, t]) => `<button class="chip ${k === es.type ? 'active' : ''}" data-t="${k}">${t.icon} ${t.label}</button>`).join('')}
+        </div>
+        <label for="entry-date">Date</label>
+        <input type="date" id="entry-date" value="${esc(es.date)}" max="${todayIso()}">
+        <label for="entry-text">Texte</label>
+        <textarea id="entry-text" placeholder="Ex. : nouvelle feuille, déplacée près de la fenêtre…">${esc(es.text)}</textarea>
+        <label>Photo (facultatif)</label>
+        ${photoPicker('entry-photo', es.photo, 'Ajouter une photo')}
+        <div class="btn-row">
+          <button class="btn secondary" id="entry-cancel">Annuler</button>
+          <button class="btn" id="entry-save">Ajouter au journal</button>
+        </div>
+      </div>` : ''}
     </div>
 
     <div class="card">
       <h2>Diagnostic</h2>
-      <p class="muted small">Photographiez la plante (ou la partie abîmée) pour obtenir un avis sur son état et des conseils. Coût : une fraction de centime.</p>
+      <p class="muted small">Photographiez la plante (ou la partie abîmée) pour obtenir un avis sur son état et des conseils. Le journal (arrosages, notes) est pris en compte. Coût : une fraction de centime.</p>
       ${photoPicker('diag-photo', ds.photo || null, 'Nouvelle photo pour le diagnostic')}
       <label for="diag-note">Ce que vous avez remarqué (facultatif)</label>
       <textarea id="diag-note" placeholder="Ex. : feuilles qui jaunissent depuis une semaine">${esc(ds.note)}</textarea>
@@ -380,57 +447,115 @@ async function renderPlant(id) {
         : `<div class="btn-row"><button class="btn" id="diag-run" ${!(ds.photo || p.photo) ? 'disabled' : ''}>🩺 ${ds.photo ? 'Diagnostiquer' : 'Diagnostiquer avec la photo principale'}</button></div>`}
     </div>
 
-    ${p.diagnoses?.length ? `<div class="card"><h2>Historique</h2>${p.diagnoses.map(diagHtml).join('')}</div>` : ''}
+    <div class="card">
+      <h2>Journal</h2>
+      ${items.length
+        ? `<ul class="timeline">${items.map((i) => timelineItemHtml(i, i === firstDiag)).join('')}</ul>`
+        : '<p class="muted small">Rien pour l\'instant. Notez un arrosage, un engrais ou une observation avec les boutons ci-dessus.</p>'}
+    </div>
 
     <div class="card">
-      <h2>Notes</h2>
+      <h2>Infos</h2>
       <label for="loc">Emplacement</label>
       <input type="text" id="loc" value="${esc(p.location)}">
       <label for="nick">Surnom</label>
       <input type="text" id="nick" value="${esc(p.nickname)}">
-      <label for="pnotes">Notes</label>
+      <label for="pnotes">Notes générales</label>
       <textarea id="pnotes">${esc(p.notes)}</textarea>
       <div class="btn-row"><button class="btn secondary" id="save-notes">Enregistrer</button></div>
       <div class="btn-row">
-        <label class="btn secondary" for="main-photo" style="margin:0">📷 Changer la photo</label>
+        <label class="btn secondary" for="main-photo" style="margin:0">📷 Changer la photo principale</label>
         <input class="visually-hidden" type="file" id="main-photo" accept="image/*">
       </div>
     </div>
 
     <button class="btn danger" id="delete">Supprimer cette plante</button>`;
 
-  view.querySelector('#water').onclick = async () => {
-    p.lastWatered = todayIso();
-    await savePlant(p);
-    toast('Arrosage noté 💧');
-    renderPlant(id);
-  };
-  view.querySelector('#diag-photo').onchange = async (e) => {
-    ds.note = view.querySelector('#diag-note').value;
+  const $ = (sel) => view.querySelector(sel);
+
+  view.querySelectorAll('[data-quick]').forEach((b) => {
+    b.onclick = async () => {
+      const type = b.dataset.quick;
+      const fresh = await loadPlant(id);
+      if (type === 'water' && fresh.events.some((e) => e.type === 'water' && e.date === todayIso())
+        && !confirm("Un arrosage est déjà noté aujourd'hui. En ajouter un autre ?")) return;
+      addEvent(fresh, { type });
+      await savePlant(fresh);
+      toast(`${EVENT_TYPES[type].icon} ${EVENT_TYPES[type].label} noté`);
+      renderPlant(id);
+    };
+  });
+  $('#open-entry').onclick = () => { es.open = !es.open; renderPlant(id); };
+  if (es.open) {
+    const snap = () => { es.date = $('#entry-date').value || todayIso(); es.text = $('#entry-text').value; };
+    view.querySelectorAll('#entry-types .chip').forEach((c) => {
+      c.onclick = () => { snap(); es.type = c.dataset.t; renderPlant(id); };
+    });
+    $('#entry-photo').onchange = async (e) => {
+      snap();
+      const blob = await readPhotoInput(e.target).catch(() => null);
+      if (blob) { es.photo = blob; if (es.type === 'note' && !es.text) es.type = 'photo'; }
+      renderPlant(id);
+    };
+    $('#entry-cancel').onclick = () => { entryState[id] = null; delete entryState[id]; renderPlant(id); };
+    $('#entry-save').onclick = async () => {
+      snap();
+      if (!es.text.trim() && !es.photo && (es.type === 'note' || es.type === 'photo')) {
+        toast('Ajoutez un texte ou une photo');
+        return;
+      }
+      const fresh = await loadPlant(id);
+      addEvent(fresh, { type: es.type, date: es.date, text: es.text.trim(), photo: es.photo });
+      await savePlant(fresh);
+      delete entryState[id];
+      toast('Ajouté au journal');
+      renderPlant(id);
+    };
+  }
+
+  view.querySelectorAll('[data-del]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Supprimer cette entrée du journal ?')) return;
+      const fresh = await loadPlant(id);
+      removeEntry(fresh, b.dataset.del);
+      await savePlant(fresh);
+      renderPlant(id);
+    };
+  });
+
+  $('#diag-photo').onchange = async (e) => {
+    ds.note = $('#diag-note').value;
     const blob = await readPhotoInput(e.target).catch(() => null);
     if (blob) { ds.photo = blob; ds.error = ''; }
     renderPlant(id);
   };
-  view.querySelector('#diag-note').oninput = (e) => { ds.note = e.target.value; };
-  const runBtn = view.querySelector('#diag-run');
+  $('#diag-note').oninput = (e) => { ds.note = e.target.value; };
+  const runBtn = $('#diag-run');
   if (runBtn) runBtn.onclick = () => runDiagnosis(p, ds);
 
-  view.querySelector('#save-notes').onclick = async () => {
-    p.location = view.querySelector('#loc').value.trim();
-    p.nickname = view.querySelector('#nick').value.trim();
-    p.notes = view.querySelector('#pnotes').value.trim();
-    await savePlant(p);
+  $('#save-notes').onclick = async () => {
+    const fresh = await loadPlant(id);
+    fresh.location = $('#loc').value.trim();
+    fresh.nickname = $('#nick').value.trim();
+    fresh.notes = $('#pnotes').value.trim();
+    await savePlant(fresh);
     toast('Enregistré');
     renderPlant(id);
   };
-  view.querySelector('#main-photo').onchange = async (e) => {
+  $('#main-photo').onchange = async (e) => {
     const blob = await readPhotoInput(e.target).catch(() => null);
-    if (blob) { p.photo = blob; await savePlant(p); renderPlant(id); }
+    if (blob) {
+      const fresh = await loadPlant(id);
+      fresh.photo = blob;
+      await savePlant(fresh);
+      renderPlant(id);
+    }
   };
-  view.querySelector('#delete').onclick = async () => {
+  $('#delete').onclick = async () => {
     if (!confirm(`Supprimer « ${name} » de votre parc ?`)) return;
     await deletePlant(id);
     delete diagState[id];
+    delete entryState[id];
     toast('Plante supprimée');
     go('#/plants');
   };
@@ -445,13 +570,14 @@ async function runDiagnosis(plant, ds) {
     const { result } = await diagnosePlant({
       photoBlob: photo,
       plant,
+      history: historySummary(plant),
       userNote: ds.note.trim(),
       apiKey: getSettings().anthropicKey,
     });
-    const fresh = (await getPlant(plant.id)) || plant;
+    const fresh = (await loadPlant(plant.id)) || plant;
     fresh.diagnoses = [
-      { date: new Date().toISOString(), photo: ds.photo || null, note: ds.note.trim(), result },
-      ...(fresh.diagnoses || []),
+      { id: newId(), date: new Date().toISOString(), photo: ds.photo || null, note: ds.note.trim(), result },
+      ...fresh.diagnoses,
     ];
     await savePlant(fresh);
     ds.photo = null; ds.note = '';
@@ -533,9 +659,12 @@ async function exportBackup() {
       diagnoses: await Promise.all((p.diagnoses || []).map(async (d) => ({
         ...d, photo: d.photo ? await blobToBase64(d.photo) : null,
       }))),
+      events: await Promise.all((p.events || []).map(async (e) => ({
+        ...e, photo: e.photo ? await blobToBase64(e.photo) : null,
+      }))),
     });
   }
-  const blob = new Blob([JSON.stringify({ app: 'DownMyPlant', version: 1, exportedAt: new Date().toISOString(), plants: out })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'DownMyPlant', version: 2, exportedAt: new Date().toISOString(), plants: out })], { type: 'application/json' });
   const file = new File([blob], `downmyplant-${todayIso()}.json`, { type: 'application/json' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Sauvegarde DownMyPlant' }); return; } catch { /* repli */ }
@@ -562,6 +691,7 @@ async function importBackup(input) {
         id: replace ? p.id : newId(),
         photo: p.photo ? base64ToBlob(p.photo) : null,
         diagnoses: (p.diagnoses || []).map((d) => ({ ...d, photo: d.photo ? base64ToBlob(d.photo) : null })),
+        events: (p.events || []).map((e) => ({ ...e, photo: e.photo ? base64ToBlob(e.photo) : null })),
       });
     }
     toast(`${data.plants.length} plante(s) importée(s)`);

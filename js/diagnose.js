@@ -44,7 +44,7 @@ parasites, maladie, rempotage nécessaire, froid...) et donne des conseils concr
 Si la photo ne permet pas de juger, dis-le et mets etat_general à "indetermine".
 N'invente pas de symptômes absents de la photo. Réponds en français, phrases courtes.`;
 
-export async function diagnosePlant({ photoBlob, plant, userNote, apiKey }) {
+export async function diagnosePlant({ photoBlob, plant, history, userNote, apiKey }) {
   if (!apiKey) {
     throw new Error('Ajoutez votre clé Anthropic dans les Réglages pour utiliser le diagnostic.');
   }
@@ -55,7 +55,7 @@ export async function diagnosePlant({ photoBlob, plant, userNote, apiKey }) {
   const context = [
     plant?.scientificName && `Espèce identifiée : ${plant.scientificName}${plant.commonName ? ` (${plant.commonName})` : ''}.`,
     plant?.location && `Emplacement : ${plant.location}.`,
-    plant?.lastWatered && `Dernier arrosage noté : ${plant.lastWatered}.`,
+    history && `Journal d'entretien :\n${history}`,
     plant?.notes && `Notes du propriétaire : ${plant.notes}`,
     userNote && `Ce que le propriétaire a remarqué : ${userNote}`,
   ].filter(Boolean).join('\n');

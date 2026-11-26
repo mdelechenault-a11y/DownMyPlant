@@ -1,6 +1,6 @@
 // Service worker : l'app s'ouvre même hors connexion.
 // Pensez à changer VERSION à chaque mise en ligne pour forcer la mise à jour.
-const VERSION = 'dmp-v1';
+const VERSION = 'dmp-v2';
 const SHELL = [
   './',
   'index.html',
@@ -12,6 +12,7 @@ const SHELL = [
   'js/image.js',
   'js/plantnet.js',
   'js/diagnose.js',
+  'js/journal.js',
   'vendor/anthropic-sdk.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
