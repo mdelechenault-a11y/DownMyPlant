@@ -1,6 +1,7 @@
 // Service worker : l'app s'ouvre même hors connexion.
-// Pensez à changer VERSION à chaque mise en ligne pour forcer la mise à jour.
-const VERSION = 'dmp-v3';
+// À chaque mise en ligne : augmenter VERSION (même valeur que js/version.js).
+const VERSION = '1.3.0';
+const CACHE = `dmp-${VERSION}`;
 const SHELL = [
   './',
   'index.html',
@@ -13,6 +14,7 @@ const SHELL = [
   'js/plantnet.js',
   'js/diagnose.js',
   'js/journal.js',
+  'js/version.js',
   'vendor/anthropic-sdk.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -20,13 +22,13 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -37,14 +39,20 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(req)
+    // no-cache : on revalide toujours auprès du serveur (évite le cache HTTP de 10 min de GitHub Pages).
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(req, copy));
+          caches.open(CACHE).then((c) => c.put(req, copy));
         }
         return res;
       })
       .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))),
   );
+});
+
+// L'app peut demander la version du service worker installé.
+self.addEventListener('message', (event) => {
+  if (event.data === 'get-version' && event.ports[0]) event.ports[0].postMessage(VERSION);
 });
