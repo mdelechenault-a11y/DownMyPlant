@@ -431,3 +431,51 @@ details summary { cursor: pointer; color: var(--primary); font-weight: 700; marg
 .search-row { display: flex; gap: 8px; align-items: center; }
 .search-row input { flex: 1; margin: 0; }
 .search-row .btn { width: auto; margin: 0; padding: 0 14px; flex: none; }
+
+/* --- Lulu vivante ------------------------------------------------------------ */
+
+.lulu-btn { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; position: relative; margin-bottom: 14px; cursor: pointer; }
+.lulu-btn .lulu-card { margin-bottom: 0; padding-bottom: 30px; }
+.lulu-chips { position: absolute; right: 12px; bottom: 9px; display: flex; gap: 6px; }
+.pill.streak { color: var(--warn); background: var(--warn-soft); }
+.pill.badges-pill { color: var(--lilac); background: color-mix(in srgb, var(--lilac) 16%, var(--surface)); }
+.lulu .lulu-body { transform-origin: 100px 180px; animation: lulu-bob 3.2s ease-in-out infinite; }
+.lulu-sleepy .lulu-body { animation-duration: 5s; }
+.lulu-party .lulu-body { animation: lulu-hop .9s ease-in-out infinite; }
+.lulu-worried .lulu-body { animation: lulu-shiver 2.4s ease-in-out infinite; }
+.lulu-zzz text { animation: lulu-z 2.6s ease-in-out infinite; }
+.lulu-zzz text + text { animation-delay: 1.3s; }
+.lulu-confetti { animation: lulu-pop 1.8s ease-in-out infinite; transform-origin: 100px 90px; }
+@keyframes lulu-bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-3px) rotate(-1.5deg); } }
+@keyframes lulu-hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-9px) rotate(3deg); } 60% { transform: translateY(-9px) rotate(-3deg); } }
+@keyframes lulu-shiver { 0%, 80%, 100% { transform: translateX(0); } 84% { transform: translateX(-2px); } 88% { transform: translateX(2px); } 92% { transform: translateX(-2px); } 96% { transform: translateX(1px); } }
+@keyframes lulu-z { 0%, 100% { opacity: 0; transform: translateY(4px); } 50% { opacity: 1; transform: translateY(-4px); } }
+@keyframes lulu-pop { 0%, 100% { transform: scale(.96); opacity: .8; } 50% { transform: scale(1.04); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lulu .lulu-body, .lulu-zzz text, .lulu-confetti { animation: none; } }
+
+.lulu-hero { text-align: center; padding: 6px 0 14px; }
+.lulu-tap { border: 0; background: none; padding: 0; cursor: pointer; }
+.lulu-tap .lulu { margin: 0 auto; }
+.lulu-tap.wiggle .lulu { animation: lulu-wiggle .6s ease-in-out; }
+@keyframes lulu-wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-8deg); } 50% { transform: rotate(7deg); } 75% { transform: rotate(-4deg); } }
+.lulu-hero .bubble {
+  position: relative; margin: 8px auto 8px; max-width: 320px; padding: 12px 16px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.lulu-hero .bubble::before { content: ''; position: absolute; top: -8px; left: 50%; width: 14px; height: 14px; margin-left: -7px; background: var(--surface); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+.streak-card { display: flex; align-items: center; gap: 12px; }
+.streak-card .ib { width: 48px; height: 48px; }
+.streak-num { font-family: var(--font-title); font-style: italic; font-weight: 600; font-size: 26px; line-height: 1.1; }
+.plant-streak { display: inline-flex; gap: 4px; align-items: center; font-size: 12.5px; font-weight: 800; color: var(--warn); margin-top: 3px; }
+.badge-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+.bdg { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 12px 8px; border-radius: 16px; background: var(--bg); border: 1px solid var(--line); }
+.bdg strong { font-size: 13.5px; line-height: 1.2; }
+.bdg .small { font-size: 12px; line-height: 1.25; }
+.bdg:not(.on) { opacity: .75; }
+.bdg:not(.on) strong { color: var(--muted); }
+.bdg-ico { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 16%, var(--surface)); margin-bottom: 4px; }
+.bdg.on .bdg-ico { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent); }
+.bdg-ok { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--ok); margin-top: 3px; }
+.bdg-bar { width: 70%; height: 5px; border-radius: 5px; background: var(--line); overflow: hidden; margin-top: 5px; }
+.bdg-bar i { display: block; height: 100%; background: var(--primary); }
+.tiny { font-size: 11px; }
