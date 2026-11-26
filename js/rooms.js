@@ -168,7 +168,7 @@ export async function renderRooms() {
 
   ctx.view.innerHTML = `
     ${rooms.length ? `<div class="room-list">${cards}</div>` : `
-      ${luluSays('Dessinons votre maison !', 'Créez vos pièces, placez les fenêtres et vos plantes : je calcule la lumière de chaque coin et je vous montre la meilleure place pour chacune.')}`}
+      ${luluSays('Dessinons ta maison !', 'Crée tes pièces, place les fenêtres et tes plantes : je calcule la lumière de chaque coin et je te montre la meilleure place pour chacune.')}`}
     ${rooms.length && unplaced ? `<p class="muted small" style="margin-top:12px">${unplaced} plante${unplaced > 1 ? 's' : ''} pas encore placée${unplaced > 1 ? 's' : ''} dans une pièce.</p>` : ''}
     ${d.open ? `
       <div class="card new-room">
