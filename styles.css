@@ -153,6 +153,7 @@ textarea { min-height: 80px; resize: vertical; }
 .plant-tile {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden; cursor: pointer; text-align: left; padding: 0; color: inherit; font: inherit;
+  display: flex; flex-direction: column; justify-content: flex-start;
 }
 .plant-tile img, .plant-tile .ph { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--accent-soft); }
 .plant-tile .ph { display: grid; place-items: center; font-size: 40px; }
