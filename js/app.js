@@ -1,7 +1,7 @@
 import { listPlants, getPlant, savePlant, deletePlant, clearPlants, newId, requestPersistence } from './db.js';
 import { getSettings, saveSettings } from './settings.js';
 import { compressImage, blobUrl, blobToBase64, base64ToBlob } from './image.js';
-import { identifyPlant, ORGANS } from './plantnet.js';
+import { identifyPlant, testPlantnetKey, cleanKey, ORGANS } from './plantnet.js';
 import { diagnosePlant } from './diagnose.js';
 import {
   EVENT_TYPES, normalizePlant, addEvent, removeEntry, daysSince, waterStats, timeline, historySummary, todayIso,
@@ -603,7 +603,10 @@ function renderSettings() {
         copiez votre clé, et ajoutez <strong>${esc(location.hostname || 'votre domaine')}</strong>
         dans les « domaines autorisés ».</p>
       <label for="pn">Clé API Pl@ntNet</label>
-      <input type="password" id="pn" value="${esc(s.plantnetKey)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input type="password" id="pn" value="${esc(s.plantnetKey)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="muted small" id="pn-info" style="margin-top:6px">${keyInfo(s.plantnetKey)}</p>
+      <div class="btn-row"><button class="btn secondary" id="pn-test">Tester la clé Pl@ntNet</button></div>
+      <div id="pn-result" style="margin-top:8px"></div>
     </div>
     <div class="card">
       <h2>Diagnostic (Claude)</h2>
@@ -611,7 +614,7 @@ function renderSettings() {
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
         et ajoutez quelques euros de crédit : un diagnostic coûte moins d'un centime.</p>
       <label for="an">Clé API Anthropic</label>
-      <input type="password" id="an" value="${esc(s.anthropicKey)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input type="password" id="an" value="${esc(s.anthropicKey)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <button class="btn" id="save">Enregistrer les clés</button>
     <p class="muted small" style="margin-top:8px">Les clés restent sur cet appareil et ne sont envoyées qu'à Pl@ntNet et Anthropic.</p>
@@ -627,16 +630,37 @@ function renderSettings() {
       <p class="muted small" id="storage" style="margin-top:8px"></p>
     </div>`;
 
+  const saveKeys = () => saveSettings({
+    plantnetKey: cleanKey(view.querySelector('#pn').value),
+    anthropicKey: cleanKey(view.querySelector('#an').value),
+  });
   view.querySelector('#save').onclick = () => {
-    saveSettings({
-      plantnetKey: view.querySelector('#pn').value.trim(),
-      anthropicKey: view.querySelector('#an').value.trim(),
-    });
+    const saved = saveKeys();
+    view.querySelector('#pn-info').innerHTML = keyInfo(saved.plantnetKey);
     toast('Clés enregistrées');
+  };
+  view.querySelector('#pn').oninput = (e) => {
+    view.querySelector('#pn-info').innerHTML = keyInfo(cleanKey(e.target.value));
+  };
+  view.querySelector('#pn-test').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const out = view.querySelector('#pn-result');
+    const saved = saveKeys();
+    btn.disabled = true;
+    out.innerHTML = '<div class="loading"><span class="spinner"></span>Test en cours…</div>';
+    const r = await testPlantnetKey(saved.plantnetKey);
+    out.innerHTML = `<div class="${r.ok ? 'success' : 'error'}">${esc(r.message)}</div>`;
+    btn.disabled = false;
   };
   view.querySelector('#export').onclick = exportBackup;
   view.querySelector('#import').onchange = (e) => importBackup(e.target);
   showStorage();
+}
+
+// Aide à vérifier une clé sans l'afficher en entier.
+function keyInfo(key) {
+  if (!key) return 'Aucune clé enregistrée.';
+  return `Clé de ${key.length} caractères, commence par <strong>${esc(key.slice(0, 4))}</strong> et finit par <strong>${esc(key.slice(-4))}</strong>.`;
 }
 
 async function showStorage() {

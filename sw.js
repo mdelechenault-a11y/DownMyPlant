@@ -1,6 +1,6 @@
 // Service worker : l'app s'ouvre même hors connexion.
 // Pensez à changer VERSION à chaque mise en ligne pour forcer la mise à jour.
-const VERSION = 'dmp-v2';
+const VERSION = 'dmp-v3';
 const SHELL = [
   './',
   'index.html',
