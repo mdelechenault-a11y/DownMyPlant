@@ -3,6 +3,7 @@
 // vient de sun.js (ville choisie dans Réglages, Paris par défaut).
 
 import { sunContext, fmtHourRound, fmtDuration } from './sun.js';
+import { heatAt, heatSensitivity, heatPenalty } from './heat.js';
 //
 // Coordonnées du plan : mètres, x vers la droite, y vers le bas (comme le SVG).
 // room.upBearing : direction (boussole, en degrés) vers laquelle regarde le haut du plan
@@ -381,8 +382,9 @@ const POT_MARGIN = 0.25; // distance mini au mur (rayon d'un pot)
 const PLANT_GAP = 0.5; // distance mini entre deux plantes
 
 // Note un point pour une plante : plus c'est haut, mieux c'est.
-function scoreFor(need, target, info) {
-  let s = -Math.abs(Math.log((info.level + 0.02) / (target + 0.02)));
+// heatPen : pénalité due à un radiateur proche (voir heat.js).
+function scoreFor(need, target, info, heatPen = 0) {
+  let s = -heatPen - Math.abs(Math.log((info.level + 0.02) / (target + 0.02)));
   const h = info.sunHours || 0;
   if (need.direct === 'non' && h > 0.5) s -= 0.6 * Math.min(1, h / 3);
   if (need.direct === 'matin' && info.direct) {
@@ -412,12 +414,16 @@ export function targetFor(room, plant, current, placement) {
   return { need, diag, target, why };
 }
 
-// Cherche le meilleur endroit libre de la pièce pour une plante.
+// Cherche le meilleur endroit libre de la pièce pour une plante
+// (lumière + éloignement des radiateurs selon la sensibilité de l'espèce).
 export function suggestSpot(room, plant, { ignoreId } = {}) {
   const placed = (room.plants || []).filter((pl) => pl.plantId !== ignoreId);
   const mine = (room.plants || []).find((pl) => pl.plantId === (ignoreId || plant.id));
   const current = mine ? lightAt(room, [mine.x, mine.y]) : null;
   const { need, diag, target, why } = targetFor(room, plant, current, mine);
+  const sens = heatSensitivity(plant);
+  const hasRad = (room.radiators || []).length > 0;
+  const penAt = (p) => (hasRad ? heatPenalty(sens, heatAt(room, p)) : 0);
   const xs = room.points.map((p) => p[0]); const ys = room.points.map((p) => p[1]);
   const step = 0.1;
   let best = null;
@@ -428,14 +434,21 @@ export function suggestSpot(room, plant, { ignoreId } = {}) {
       if (placed.some((pl) => Math.hypot(pl.x - x, pl.y - y) < PLANT_GAP)) continue;
       if (blocksFrenchWindow(room, p)) continue;
       const info = lightAt(room, p);
-      const s = scoreFor(need, target, info) - (mine ? Math.hypot(mine.x - x, mine.y - y) * 0.01 : 0);
-      if (!best || s > best.score) best = { x: round(x), y: round(y), score: s, info };
+      const heatPen = penAt(p);
+      const s = scoreFor(need, target, info, heatPen) - (mine ? Math.hypot(mine.x - x, mine.y - y) * 0.01 : 0);
+      if (!best || s > best.score) best = { x: round(x), y: round(y), score: s, info, heatPen };
     }
   }
   if (!best) return null;
-  const currentScore = current ? scoreFor(need, target, current) : null;
+  const curPen = mine ? penAt([mine.x, mine.y]) : 0;
+  const currentScore = current ? scoreFor(need, target, current, curPen) : null;
+  // Le déplacement est-il surtout dû au radiateur ?
+  const lightGain = current ? scoreFor(need, target, best.info) - scoreFor(need, target, current) : 0;
+  const heatGain = curPen - best.heatPen;
+  const heatDriven = hasRad && heatGain > 0.15 && heatGain >= lightGain;
   return {
-    ...best, need, diag, target, why, current,
+    ...best, need, diag, target, current, sens, heatDriven,
+    why: heatDriven && !diag ? 'Trop près d\'un radiateur pour cette plante' : why,
     gain: currentScore == null ? null : best.score - currentScore,
     spot: describeSpot(room, [best.x, best.y]),
   };
@@ -443,13 +456,17 @@ export function suggestSpot(room, plant, { ignoreId } = {}) {
 
 // Évalue la place actuelle : 'good' | 'warn' | 'bad'.
 export function fitAt(room, plant, placement) {
-  const info = lightAt(room, [placement.x, placement.y]);
+  const p = [placement.x, placement.y];
+  const info = lightAt(room, p);
   const need = plantNeed(plant);
   const diag = diagnosisLight(plant, placement);
-  if (diag && !diag.addressed) return { status: 'warn', info, need, diag };
+  const heat = (room.radiators || []).length ? heatAt(room, p) : null;
+  const heatPen = heat ? heatPenalty(heatSensitivity(plant), heat) : 0;
+  const tooHot = heatPen > 0.3;
+  if (diag && !diag.addressed) return { status: 'warn', info, need, diag, heat, heatPen, tooHot };
   const target = diag ? (diag.dir === 'plus' ? Math.max(need.target, info.level) : Math.min(need.target, info.level)) : need.target;
-  const s = scoreFor(need, target, info);
-  return { status: s > -0.45 ? 'good' : s > -0.95 ? 'warn' : 'bad', info, need, diag };
+  const s = scoreFor(need, target, info, heatPen);
+  return { status: s > -0.45 ? 'good' : s > -0.95 ? 'warn' : 'bad', info, need, diag, heat, heatPen, tooHot };
 }
 
 // Garde un passage libre devant les portes-fenêtres.

@@ -1,6 +1,6 @@
 // Service worker : l'app s'ouvre même hors connexion.
 // À chaque mise en ligne : augmenter VERSION (même valeur que js/version.js).
-const VERSION = '1.10.0';
+const VERSION = '1.11.0';
 const CACHE = `dmp-${VERSION}`;
 const SHELL = [
   './',
@@ -18,6 +18,7 @@ const SHELL = [
   'js/ui.js',
   'js/rooms.js',
   'js/light.js',
+  'js/heat.js',
   'js/season.js',
   'js/sun.js',
   'js/lulu.js',
