@@ -10,6 +10,10 @@ import {
   getsDirectSun, setSunDay, currentSun, windowSun, sunNowAt,
 } from './light.js';
 import {
+  RADIATOR_TYPES, RADIATOR_POWER, heatingSeason, radiusFor, heatText, heatTable, heatSensitivity, fmtDeg,
+  ROOM_HUMIDITY,
+} from './heat.js';
+import {
   getPlace, referenceDay, fmtHourRound, fmtDuration, weather, weatherLabel,
 } from './sun.js';
 
@@ -75,18 +79,22 @@ function selfIntersects(points) {
   return false;
 }
 
-// Rattache chaque fenêtre au mur le plus proche après un changement de forme.
+// Rattache chaque fenêtre et chaque radiateur au mur le plus proche après un
+// changement de forme. `centers` vient de windowCenters() (fenêtres puis radiateurs).
 function reattachWindows(room, centers) {
-  room.windows = room.windows.map((w, i) => {
-    const nw = nearestWall(centers[i], room.points);
+  const attach = (w, c) => {
+    const nw = nearestWall(c, room.points);
     const len = wallLength(room.points, nw.wall);
     const width = Math.min(w.width, Math.max(0.3, len - 0.1));
     return { ...w, wall: nw.wall, width, at: Math.max(width / 2, Math.min(len - width / 2, nw.t * len)) };
-  });
+  };
+  const nw = room.windows.length;
+  room.windows = room.windows.map((w, i) => attach(w, centers[i]));
+  room.radiators = (room.radiators || []).map((r, i) => attach(r, centers[nw + i]));
 }
 
 function windowCenters(room) {
-  return room.windows.map((w) => {
+  return [...room.windows, ...(room.radiators || [])].map((w) => {
     const [A, B] = windowEnds(room, w);
     return [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
   });
@@ -103,9 +111,11 @@ export async function placementOf(plantId) {
     const pl = (room.plants || []).find((x) => x.plantId === plantId);
     if (pl) {
       const spot = (room.windows || []).length ? describeSpot(room, [pl.x, pl.y]) : null;
+      const ht = heatText(room, [pl.x, pl.y], null);
+      const heat = ht ? `, ${ht.where} (${ht.season.on ? `chauffage allumé en ce moment, environ ${fmtDeg(ht.now)} et air plus sec` : 'chauffage éteint en ce moment'})` : '';
       return {
         room,
-        text: spot ? `${room.name}, ${spot.where} (${spot.lv.label.toLowerCase()}, ${spot.sun} aujourd'hui)` : room.name,
+        text: (spot ? `${room.name}, ${spot.where} (${spot.lv.label.toLowerCase()}, ${spot.sun} aujourd'hui)` : room.name) + heat,
       };
     }
   }
@@ -241,7 +251,8 @@ let pageState = null;
 function freshState(roomId) {
   return {
     roomId, room: null, plants: new Map(), rooms: [], mode: 'plants', showLight: true,
-    sel: null, // { kind: 'plant'|'window'|'vertex', id }
+    sel: null, // { kind: 'plant'|'window'|'rad'|'vertex', id }
+    addRad: 'radiator', addPower: 'mid', showHeat: true,
     addType: 'window', drawing: null, suggestion: null, heat: null, heatKey: '', vb: null,
     sunDay: 'today', sunMin: null, // vue Soleil : jour (today|summer|winter) et heure (minutes)
   };
@@ -251,6 +262,7 @@ const MODES = [
   ['plants', 'leaf', 'Plantes'],
   ['shape', 'shape', 'Forme'],
   ['windows', 'window', 'Fenêtres'],
+  ['heat', 'radiator', 'Chauffage'],
   ['sun', 'sun', 'Soleil'],
 ];
 
@@ -262,7 +274,7 @@ export async function renderRoom(id) {
   st.justCreated = false;
   const [room, plants, rooms] = await Promise.all([getRoom(id), listPlants(), listRooms()]);
   if (!room) { ctx.go('#/rooms'); return; }
-  room.windows = room.windows || []; room.plants = room.plants || [];
+  room.windows = room.windows || []; room.plants = room.plants || []; room.radiators = room.radiators || [];
   // Plantes supprimées entre-temps.
   const ids = new Set(plants.map((p) => p.id));
   if (room.plants.some((pl) => !ids.has(pl.plantId))) {
@@ -349,6 +361,7 @@ function hintText() {
   switch (st.mode) {
     case 'shape': return 'Faites glisser les angles. Touchez un ＋ pour ajouter un angle.';
     case 'windows': return 'Touchez un mur pour ajouter une ouverture, puis faites-la glisser.';
+    case 'heat': return 'Touchez un mur pour ajouter un radiateur, puis faites-le glisser.';
     case 'sun': return '';
     default: return st.room.plants.length ? 'Glissez une bulle pour la déplacer, touchez-la pour un conseil.' : '';
   }
@@ -390,6 +403,53 @@ function windowSvg(room, w, selected) {
     <line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" class="win-pane"/>
     <line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" class="hit-line"/>
   </g>`;
+}
+
+// Radiateur : bloc à ailettes posé contre le mur, côté pièce.
+function radiatorSvg(room, r, selected) {
+  const [A, B] = windowEnds(room, r);
+  const n = outwardNormal(room.points, r.wall);
+  const i = [-n[0], -n[1]];
+  const at = (P, d) => [r2(P[0] + i[0] * d), r2(P[1] + i[1] * d)];
+  const a1 = at(A, 0.08); const b1 = at(B, 0.08); const b2 = at(B, 0.22); const a2 = at(A, 0.22);
+  const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+  const fins = [];
+  const nf = Math.max(2, Math.round(len / 0.12));
+  for (let k = 1; k < nf; k++) {
+    const t = k / nf;
+    const P = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    const p1 = at(P, 0.1); const p2 = at(P, 0.2);
+    fins.push(`<line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" class="rad-fin"/>`);
+  }
+  return `<g data-hit="rad:${r.id}" class="rad ${selected ? 'sel' : ''}">
+    <polygon points="${[a1, b1, b2, a2].map((p) => p.join(',')).join(' ')}" class="rad-body"/>
+    ${fins.join('')}
+    <line x1="${at(A, 0.15)[0]}" y1="${at(A, 0.15)[1]}" x2="${at(B, 0.15)[0]}" y2="${at(B, 0.15)[1]}" class="hit-line"/>
+  </g>`;
+}
+
+// Zones de chaleur autour des radiateurs : +1 °C, +3 °C, +5 °C.
+// winter = true : effet en plein hiver (onglet Chauffage), sinon effet retenu
+// pour le placement (saison de chauffe, jamais nul).
+function heatZonesSvg(room, winter) {
+  const k = winter ? 1 : heatingSeason().weight;
+  const parts = [];
+  [[1, 'hz1'], [3, 'hz2'], [5, 'hz3']].forEach(([deg, cls]) => {
+    room.radiators.forEach((r) => {
+      const rad = radiusFor(deg / k, r);
+      if (rad <= 0.02) return;
+      const [A, B] = windowEnds(room, r);
+      parts.push(`<line x1="${r2(A[0])}" y1="${r2(A[1])}" x2="${r2(B[0])}" y2="${r2(B[1])}" stroke-width="${r2(rad * 2)}" class="hz ${cls}"/>`);
+    });
+  });
+  return `<g clip-path="url(#roomclip)" class="heat-zones">${parts.join('')}</g>`;
+}
+
+function heatLegend(winter) {
+  return `<div class="light-legend heat-legend">
+    <span><i class="lg hz-l1"></i>+1 °C</span><span><i class="lg hz-l2"></i>+3 °C</span><span><i class="lg hz-l3"></i>+5 °C</span>
+    <span class="muted">${winter ? 'en plein hiver' : 'près des radiateurs'}</span>
+  </div>`;
 }
 
 function plantMarker(pl, plant, status, extraCls = '') {
@@ -477,13 +537,19 @@ function planSvg() {
   parts.push(`<polygon points="${poly}" class="room-floor"/>`);
   parts.push(`<polygon points="${poly}" fill="url(#grid)" class="room-grid"/>`);
   if (showHeat) parts.push(`<g clip-path="url(#roomclip)" shape-rendering="crispEdges">${heatmap()}</g>`);
+  const showRadHeat = room.radiators.length && !st.dragging
+    && (st.mode === 'heat' || (st.mode === 'plants' && st.showHeat));
+  if (showRadHeat) parts.push(heatZonesSvg(room, st.mode === 'heat'));
   parts.push(`<polygon points="${poly}" class="room-wall" data-hit="walls"/>`);
+
+  // Radiateurs
+  room.radiators.forEach((r) => parts.push(radiatorSvg(room, r, st.sel?.kind === 'rad' && st.sel.id === r.id)));
 
   // Fenêtres
   room.windows.forEach((w) => parts.push(windowSvg(room, w, st.sel?.kind === 'window' && st.sel.id === w.id)));
 
   // Étiquettes d'exposition des fenêtres
-  if (st.mode === 'windows' || st.mode === 'sun') {
+  if (st.mode === 'windows' || st.mode === 'sun' || st.mode === 'heat') {
     room.windows.forEach((w) => {
       const [A, B] = windowEnds(room, w);
       const n = outwardNormal(room.points, w.wall);
@@ -511,7 +577,7 @@ function planSvg() {
   if (st.mode === 'sun') parts.push(sunCourseSvg());
 
   // Plantes
-  if (st.mode === 'plants' || st.mode === 'sun') {
+  if (st.mode === 'plants' || st.mode === 'sun' || st.mode === 'heat') {
     const sug = st.suggestion;
     if (sug && st.sel?.kind === 'plant') {
       const pl = room.plants.find((x) => x.plantId === st.sel.id);
@@ -583,6 +649,9 @@ function bindPlan() {
     } else if (kind === 'win' && st.mode === 'windows') {
       const w = st.room.windows.find((x) => x.id === id);
       drag.off = w.at - nearestWallOn(w.wall, p).t * wallLength(st.room.points, w.wall);
+    } else if (kind === 'rad' && st.mode === 'heat') {
+      const r = st.room.radiators.find((x) => x.id === id);
+      drag.off = r.at - nearestWallOn(r.wall, p).t * wallLength(st.room.points, r.wall);
     } else if (kind === 'vertex' && st.mode === 'shape') {
       drag.vi = Number(id);
       drag.off = [st.room.points[drag.vi][0] - p[0], st.room.points[drag.vi][1] - p[1]];
@@ -611,6 +680,17 @@ function bindPlan() {
         if (nw.wall !== w.wall) { w.wall = nw.wall; drag.off = 0; w.width = Math.min(w.width, Math.max(0.3, len - 0.1)); }
         w.at = r2(Math.max(w.width / 2, Math.min(len - w.width / 2, snap(nw.t * len + drag.off))));
         st.sel = { kind: 'window', id: w.id };
+        draw();
+      }
+    } else if (drag.kind === 'rad' && st.mode === 'heat') {
+      st.dragging = true;
+      const r = st.room.radiators.find((x) => x.id === drag.id);
+      const nw = nearestWall(p, st.room.points);
+      if (nw.d < 1.2) {
+        const len = wallLength(st.room.points, nw.wall);
+        if (nw.wall !== r.wall) { r.wall = nw.wall; drag.off = 0; r.width = Math.min(r.width, Math.max(0.3, len - 0.1)); }
+        r.at = r2(Math.max(r.width / 2, Math.min(len - r.width / 2, snap(nw.t * len + drag.off))));
+        st.sel = { kind: 'rad', id: r.id };
         draw();
       }
     } else if (drag.kind === 'vertex' && st.mode === 'shape') {
@@ -697,6 +777,22 @@ async function onTap(kind, id, p) {
     draw();
     return;
   }
+  if (st.mode === 'heat') {
+    if (kind === 'rad') { st.sel = { kind: 'rad', id }; draw(); return; }
+    if (kind === 'plant') { st.sel = { kind: 'plant', id }; st.mode = 'plants'; st.suggestion = room.windows.length ? suggestSpot(room, st.plants.get(id), { ignoreId: id }) : null; rerenderSeg(); draw(); return; }
+    const nw = nearestWall(p, room.points);
+    if (nw.d > 0.45) { st.sel = null; draw(); return; }
+    const len = wallLength(room.points, nw.wall);
+    const type = st.addRad;
+    const width = Math.min(RADIATOR_TYPES[type].width, Math.max(0.3, len - 0.1));
+    const r = { id: newId(), wall: nw.wall, at: r2(Math.max(width / 2, Math.min(len - width / 2, snap(nw.t * len)))), width, type, power: st.addPower };
+    room.radiators.push(r);
+    st.sel = { kind: 'rad', id: r.id };
+    await save();
+    ctx.toast(`${RADIATOR_TYPES[type].label} ajouté`);
+    draw();
+    return;
+  }
   if (st.mode === 'windows') {
     if (kind === 'win') { st.sel = { kind: 'window', id }; draw(); return; }
     const nw = nearestWall(p, room.points);
@@ -739,7 +835,7 @@ async function finishDrawing() {
   const room = st.room;
   const centers = windowCenters(room);
   room.points = pts.map((p) => [r2(p[0] - b.x0), r2(p[1] - b.y0)]);
-  if (room.windows.length) reattachWindows(room, centers.map((c) => [c[0] - b.x0, c[1] - b.y0]));
+  if (centers.length) reattachWindows(room, centers.map((c) => [c[0] - b.x0, c[1] - b.y0]));
   clampPlantsInside();
   st.drawing = null; st.sel = null; st.vb = null;
   await save();
@@ -843,6 +939,7 @@ function renderPanel() {
   if (st.drawing) panel.innerHTML = drawingPanel();
   else if (st.mode === 'shape') panel.innerHTML = shapePanel();
   else if (st.mode === 'windows') panel.innerHTML = windowsPanel();
+  else if (st.mode === 'heat') panel.innerHTML = heatPanel();
   else if (st.mode === 'sun') panel.innerHTML = sunPanel();
   else panel.innerHTML = plantsPanel();
   bindPanel(panel);
@@ -878,7 +975,7 @@ function plantsPanel() {
     return `<button class="pl-row" data-select="${esc(pl.plantId)}">
       ${plant.photo ? `<img src="${blobUrl(plant.photo)}" alt="">` : `<span class="ph">${plantArt(plant.id, plant.scientificName)}</span>`}
       <span class="pl-info"><strong>${esc(plantName(plant))}</strong>
-        <span class="muted small">${fit ? `Ici : ${esc(lv.label.toLowerCase())}${fit.info.direct ? ' + soleil direct' : ''}<br>Besoin : ${esc(fit.need.label.toLowerCase())}` : ''}</span></span>
+        <span class="muted small">${fit ? `Ici : ${esc(lv.label.toLowerCase())}${fit.info.direct ? ' + soleil direct' : ''}<br>Besoin : ${esc(fit.need.label.toLowerCase())}` : ''}${fit?.tooHot ? `<br><span class="heat-note">${icon('radiator', 12)} trop près d'un radiateur</span>` : ''}</span></span>
       ${fit ? `<span class="badge ${STATUS[fit.status].cls}">${fit.diag && !fit.diag.addressed ? (fit.diag.dir === 'plus' ? 'Plus de lumière' : 'Moins de lumière') : STATUS[fit.status].label}</span>` : ''}
     </button>`;
   }).join('');
@@ -901,6 +998,10 @@ function plantsPanel() {
       ${lightLegend()}
       <label class="switch"><input type="checkbox" id="show-light" ${st.showLight ? 'checked' : ''}> Lumière</label>
     </div>` : ''}
+    ${room.radiators.length ? `<div class="row light-toggle">
+      ${heatLegend(false)}
+      <label class="switch"><input type="checkbox" id="show-heat" ${st.showHeat ? 'checked' : ''}> Chaleur</label>
+    </div>` : ''}
     ${inRoom.length ? `<div class="card"><h2>Dans cette pièce</h2><div class="pl-list">${rows}</div></div>` : ''}`;
 }
 
@@ -911,6 +1012,8 @@ function selectedPlantPanel(pl, plant) {
   const fit = hasWin ? fitAt(room, plant, pl) : null;
   const here = hasWin ? describeSpot(room, [pl.x, pl.y]) : null;
   const sug = st.suggestion;
+  const ht = room.radiators.length ? heatText(room, [pl.x, pl.y], plant) : null;
+  const sens = heatSensitivity(plant);
   const far = sug && Math.hypot(sug.x - pl.x, sug.y - pl.y) > 0.25;
   const better = far && (sug.gain == null || sug.gain > 0.08);
 
@@ -919,7 +1022,7 @@ function selectedPlantPanel(pl, plant) {
     advice = better
       ? `<div class="advice">
           <div class="advice-title">${icon('star', 18)} Emplacement idéal</div>
-          <p>${esc(sug.why)}. Le mieux : <strong>${esc(sug.spot.lv.label.toLowerCase())}</strong>, ${esc(sug.spot.where)} (${esc(sug.spot.sun)} aujourd'hui).</p>
+          <p>${esc(sug.why)}. Le mieux : <strong>${esc(sug.spot.lv.label.toLowerCase())}</strong>, ${esc(sug.spot.where)} (${esc(sug.spot.sun)} aujourd'hui)${esc(idealHeatText(room, sug, plant, ht))}.</p>
           <div class="btn-row"><button class="btn" id="move-ideal">Déplacer ici</button></div>
         </div>`
       : `<div class="advice ok"><div class="advice-title">${icon('check', 18)} Bon emplacement</div>
@@ -937,6 +1040,10 @@ function selectedPlantPanel(pl, plant) {
       <dl class="kv">
         ${here ? `<dt>Ici</dt><dd>${esc(here.lv.label)}<br><span class="muted small">${esc(here.where)}</span><br><span class="muted small">${esc(cap(here.sun))} aujourd'hui</span></dd>` : ''}
         <dt>Besoin</dt><dd>${esc(need.label)}<br><span class="muted small">${esc(need.source)}</span></dd>
+        ${ht ? `<dt>Chauffage</dt><dd>${esc(cap(ht.where))} : effet ${esc(ht.effect.label)}<br>
+          <span class="muted small">${esc(cap(ht.winter))}. ${esc(ht.now)}.</span><br>
+          <span class="muted small">Sensibilité ${esc(sens.label)} : ${esc(sens.why)}.</span>
+          ${ht.penalty > 0.3 ? `<br><span class="small heat-note">${icon('radiator', 12)} ${esc(heatVerdict(ht))}</span>` : ''}</dd>` : ''}
         ${fit?.diag ? `<dt>Diagnostic</dt><dd>${fit.diag.addressed ? 'Demandait' : 'Demande'} ${fit.diag.dir === 'plus' ? 'plus' : 'moins'} de lumière${fit.diag.addressed ? ' · déjà déplacée' : ''}${fit.diag.text ? `<br><span class="muted small">« ${esc(fit.diag.text)} »</span>` : ''}</dd>` : ''}
       </dl>
       ${advice}
@@ -951,6 +1058,102 @@ function selectedPlantPanel(pl, plant) {
       </div>
       <button class="link-btn" id="desel">← Toutes les plantes de la pièce</button>
     </div>`;
+}
+
+// « , loin des radiateurs » / « , à 1,2 m d'un radiateur (+1 °C en hiver) ».
+function idealHeatText(room, sug, plant, cur) {
+  if (!room.radiators.length) return '';
+  const h = heatText(room, [sug.x, sug.y], plant);
+  if (!h) return sug.heatDriven || (cur && cur.penalty > 0.3) ? ', loin des radiateurs' : '';
+  return `, ${h.short}`;
+}
+
+function heatVerdict(ht) {
+  const p = ht.penalty;
+  const when = ht.season.on ? '' : ' cet hiver';
+  if (p > 1) return `Bien trop près pour elle${when} : éloignez-la d'au moins 1,5 m.`;
+  if (p > 0.6) return `Trop près pour elle${when} : gagnez au moins 50 cm, ou posez une soucoupe de billes d'argile humides.`;
+  return `Un peu trop près${when} : surveillez le bord des feuilles et la terre, qui sèchera plus vite.`;
+}
+
+function heatPanel() {
+  const st = pageState; const room = st.room;
+  const season = heatingSeason();
+  const r = st.sel?.kind === 'rad' ? room.radiators.find((x) => x.id === st.sel.id) : null;
+  const ref = r || { type: st.addRad, power: st.addPower, width: RADIATOR_TYPES[st.addRad].width };
+  const table = heatTable(ref);
+  const seasonText = season.on
+    ? `Chauffage en marche en ${season.month} : effet compté à ${Math.round(season.factor * 100)} % du plein hiver.`
+    : `Chauffage arrêté en ${season.month}. Pour choisir les emplacements, l'effet est quand même compté à ${Math.round(season.weight * 100)} % : vos plantes seront déjà bien placées quand il reprendra.`;
+
+  const typeChips = (cur, id) => `<div class="chips" id="${id}">
+    ${Object.entries(RADIATOR_TYPES).map(([k, t]) => `<button class="chip ${cur === k ? 'active' : ''}" data-v="${k}">${t.label}</button>`).join('')}</div>`;
+  const powerChips = (cur, id) => `<div class="chips" id="${id}">
+    ${Object.entries(RADIATOR_POWER).map(([k, t]) => `<button class="chip ${cur === k ? 'active' : ''}" data-v="${k}">${t.label}</button>`).join('')}</div>`;
+
+  let selHtml = '';
+  if (r) {
+    const len = wallLength(room.points, r.wall);
+    selHtml = `
+      <div class="card">
+        <h2>${esc(RADIATOR_TYPES[r.type]?.label || 'Radiateur')} · ${esc(RADIATOR_POWER[r.power]?.label.toLowerCase() || 'moyen')}</h2>
+        <p class="muted small">${esc(cap(RADIATOR_TYPES[r.type]?.hint || ''))}. Faites-le glisser le long du mur pour le déplacer.</p>
+        ${typeChips(r.type, 'rad-type')}
+        <label>Puissance ressentie</label>
+        ${powerChips(r.power, 'rad-power')}
+        <label for="rad-w">Largeur : <span id="rad-w-val">${fmtM(r.width)}</span></label>
+        <input type="range" id="rad-w" min="0.3" max="${r2(Math.max(0.4, Math.min(3, len - 0.05)))}" step="0.05" value="${r.width}">
+        <div class="btn-row"><button class="btn danger" id="del-rad">Supprimer</button></div>
+      </div>`;
+  }
+
+  const list = room.radiators.map((x) => `<button class="pl-row" data-rad="${esc(x.id)}">
+      <span class="ph ico-ph">${icon('radiator', 22)}</span>
+      <span class="pl-info"><strong>${esc(RADIATOR_TYPES[x.type]?.label || 'Radiateur')} ${esc(RADIATOR_POWER[x.power]?.label.toLowerCase() || '')}</strong>
+      <span class="muted small">${fmtM(x.width)} · ${fmtDeg(heatTable(x)[0].dT)} à 20 cm en hiver</span></span>
+    </button>`).join('');
+
+  // Plantes de la pièce touchées par la chaleur.
+  const touched = room.plants.map((pl) => {
+    const plant = st.plants.get(pl.plantId);
+    const ht = plant ? heatText(room, [pl.x, pl.y], plant) : null;
+    return ht ? { pl, plant, ht } : null;
+  }).filter(Boolean).sort((a, b) => b.ht.penalty - a.ht.penalty);
+  const touchedHtml = touched.map(({ pl, plant, ht }) => {
+    const cls = ht.penalty > 0.6 ? 'bad' : ht.penalty > 0.3 ? 'warn' : 'good';
+    const lab = ht.penalty > 0.6 ? 'À éloigner' : ht.penalty > 0.3 ? 'Un peu près' : 'Ça va';
+    return `<button class="pl-row" data-select="${esc(pl.plantId)}">
+      ${plant.photo ? `<img src="${blobUrl(plant.photo)}" alt="">` : `<span class="ph">${plantArt(plant.id, plant.scientificName)}</span>`}
+      <span class="pl-info"><strong>${esc(plantName(plant))}</strong>
+        <span class="muted small">${esc(cap(ht.short))}<br>Sensibilité ${esc(ht.sens.label)}</span></span>
+      <span class="badge ${cls}">${lab}</span>
+    </button>`;
+  }).join('');
+
+  return `
+    <div class="card">
+      <h2>Ajouter un radiateur</h2>
+      ${typeChips(st.addRad, 'add-rad')}
+      <label>Puissance ressentie</label>
+      ${powerChips(st.addPower, 'add-power')}
+      <p class="muted small" style="margin-top:8px">Puis touchez le mur où il se trouve sur le plan (souvent sous une fenêtre).</p>
+    </div>
+    ${selHtml}
+    <div class="card heat-card">
+      <h2>Effet estimé</h2>
+      <p class="small">${esc(seasonText)}</p>
+      <table class="heat-table">
+        <thead><tr><th>Distance</th><th>Chaleur</th><th>Humidité</th><th>Arrosage</th></tr></thead>
+        <tbody>${table.map((t) => `<tr class="hz-row-${t.effect.key}"><td>${t.label}</td><td>${fmtDeg(t.dT)}</td><td>~${t.rh} %</td><td>${t.water >= 3 ? `+${t.water} %` : '='}</td></tr>`).join('')}</tbody>
+      </table>
+      <p class="muted small">En plein hiver, pour ${r ? 'ce radiateur' : `un ${esc(RADIATOR_TYPES[ref.type].label.toLowerCase())} ${esc(RADIATOR_POWER[ref.power].label.toLowerCase())}`}. Pièce à ~${ROOM_HUMIDITY} % d'humidité. « Arrosage » : combien plus souvent la terre sera sèche.</p>
+      ${room.radiators.length ? heatLegend(true) : ''}
+      <details class="heat-how"><summary>Comment c'est calculé</summary>
+        <p class="small">Contre un radiateur moyen, l'air est environ 8 °C plus chaud que la pièce, et l'écart est divisé par 2,5 à peu près tous les 50 cm. Chaque degré gagné fait baisser l'humidité d'environ 6 % et sécher la terre 5 % plus vite. Le conseil d'emplacement retire des points selon la sensibilité de l'espèce : forte (calathéa, fougères, fittonia…), moyenne (la plupart des plantes vertes) ou faible (cactus, plantes grasses, sansevieria, zamioculcas). Une plante très sensible à 40 cm d'un radiateur en hiver perd autant qu'avec deux fois trop peu de lumière.</p>
+      </details>
+    </div>
+    ${touched.length ? `<div class="card"><h2>Plantes près d'un radiateur</h2><div class="pl-list">${touchedHtml}</div></div>` : ''}
+    ${room.radiators.length ? `<div class="card"><h2>Radiateurs</h2><div class="pl-list">${list}</div></div>` : ''}`;
 }
 
 function shapePanel() {
@@ -1121,6 +1324,8 @@ function bindPanel(panel) {
   });
   const sl = q('#show-light');
   if (sl) sl.onchange = () => { st.showLight = sl.checked; draw(); };
+  const sh = q('#show-heat');
+  if (sh) sh.onchange = () => { st.showHeat = sh.checked; draw(); };
   on('#move-ideal', async () => {
     const pl = room.plants.find((x) => x.plantId === st.sel.id);
     const sug = st.suggestion;
@@ -1221,6 +1426,32 @@ function bindPanel(panel) {
     ww.onchange = async () => { await save(); draw(); };
     on('#del-win', async () => {
       room.windows = room.windows.filter((x) => x.id !== selW.id);
+      st.sel = null;
+      await save(); draw();
+    });
+  }
+
+  // Chauffage
+  panel.querySelectorAll('#add-rad .chip').forEach((c) => { c.onclick = () => { st.addRad = c.dataset.v; renderPanel(); }; });
+  panel.querySelectorAll('#add-power .chip').forEach((c) => { c.onclick = () => { st.addPower = c.dataset.v; renderPanel(); }; });
+  panel.querySelectorAll('[data-rad]').forEach((b) => { b.onclick = () => { st.sel = { kind: 'rad', id: b.dataset.rad }; draw(); }; });
+  const selR = st.sel?.kind === 'rad' ? room.radiators.find((x) => x.id === st.sel.id) : null;
+  if (selR) {
+    panel.querySelectorAll('#rad-type .chip').forEach((c) => { c.onclick = async () => { selR.type = c.dataset.v; await save(); draw(); }; });
+    panel.querySelectorAll('#rad-power .chip').forEach((c) => { c.onclick = async () => { selR.power = c.dataset.v; await save(); draw(); }; });
+    const rw = q('#rad-w');
+    rw.oninput = () => {
+      const len = wallLength(room.points, selR.wall);
+      selR.width = Number(rw.value);
+      selR.at = Math.max(selR.width / 2, Math.min(len - selR.width / 2, selR.at));
+      q('#rad-w-val').textContent = fmtM(selR.width);
+      const vb = st.vb;
+      document.getElementById('plan').innerHTML = planSvg();
+      st.vb = vb;
+    };
+    rw.onchange = async () => { await save(); draw(); };
+    on('#del-rad', async () => {
+      room.radiators = room.radiators.filter((x) => x.id !== selR.id);
       st.sel = null;
       await save(); draw();
     });

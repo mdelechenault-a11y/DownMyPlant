@@ -31,6 +31,11 @@ Pensée pour l'iPhone via « Sur l'écran d'accueil », sans App Store ni compte
   le bandeau sous le plan, puis déplacez leurs bulles. L'app calcule une carte de lumière
   (exposition et distance aux ouvertures) et propose pour chaque plante un **emplacement
   idéal** ⭐ selon les besoins de l'espèce et le dernier diagnostic (plus ou moins de lumière).
+- **Radiateurs** (onglet Chauffage d'une pièce) : posez les radiateurs ou convecteurs sur
+  les murs, avec leur puissance. L'app estime la chaleur et l'air sec autour d'eux
+  (≈ +8 °C et 25 % d'humidité contre le radiateur, +3 °C à 50 cm, +1 °C à 1 m), selon la
+  saison de chauffe, et en tient compte dans l'emplacement idéal selon la sensibilité de
+  l'espèce (forte pour calathéas et fougères, faible pour cactus et plantes grasses).
 - **Vrai soleil** : la carte de lumière suit la course réelle du soleil pour votre ville
   (Réglages → Ma ville, ou position du téléphone), le jour et la saison : heures de soleil par
   fenêtre, tache de soleil qui entre dans la pièce (selon la hauteur du soleil, l'allège et le haut
@@ -121,6 +126,7 @@ js/settings.js          clés API locales
 js/ui.js                icônes SVG, illustrations de plantes et Lulu la coccinelle
 js/rooms.js             module Pièces (plan, fenêtres, glisser-déposer des plantes)
 js/light.js             calcul de la lumière et besoins des plantes par genre
+js/heat.js              effet des radiateurs (chaleur, air sec, saison de chauffe, sensibilité)
 rooms.css               styles du module Pièces
 fonts/                  polices Fraunces et Nunito Sans (licence SIL OFL), servies localement
 vendor/anthropic-sdk.js SDK officiel @anthropic-ai/sdk 1.7.0, regroupé en un fichier ESM
